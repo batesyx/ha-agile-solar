@@ -1,0 +1,78 @@
+# Octopus Export Optimizer Configuration
+# Copy this file to config.yaml and fill in your details.
+
+octopus:
+  api_key: "sk_live_xxxxxxxxxxxxxxxxxxxx"
+  account_number: "A-XXXXXXXX"
+  export_mpan: "0000000000000"
+  export_serial: "00A0000000"
+  import_mpan: "0000000000000"
+  import_serial: "00A0000000"
+  export_product_code: "AGILE-OUTGOING-19-05-13"
+  export_tariff_code: "E-1R-AGILE-OUTGOING-19-05-13-B"
+  import_product_code: "INTELLI-BB-VAR-23-03-01"
+  import_tariff_code: "E-1R-INTELLI-BB-VAR-23-03-01-B"
+
+battery:
+  capacity_kwh: 11.52
+  round_trip_efficiency: 0.90
+
+solar:
+  panels:
+    - orientation: 0    # North
+      tilt: 35
+      kwp: 7.14
+    - orientation: 180  # South
+      tilt: 35
+      kwp: 3.06
+    - orientation: 90   # East
+      tilt: 35
+      kwp: 0.88
+    - orientation: 270  # West
+      tilt: 35
+      kwp: 0.88
+
+thresholds:
+  flat_export_rates:
+    - rate_pence: 12.0
+      effective_from: "2024-01-01"
+      # effective_to: null means current/ongoing
+  export_now_threshold_pence: 15.0
+  better_slot_delta_pence: 3.0
+  look_ahead_hours: 4
+  reserve_soc_floor: 0.20
+  minimum_soc_for_export: 0.35
+  high_soc_hold_threshold: 0.80
+  minimum_meaningful_export_kw: 0.1
+  battery_round_trip_efficiency: 0.90
+  allow_import_arbitrage: false
+  cheap_import_threshold_pence: 7.5
+  data_freshness_limit_minutes: 60
+
+home_assistant:
+  url: "http://homeassistant.local:8123"
+  token: "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.xxxx"
+  entity_ids:
+    battery_soc: "sensor.fox_ess_battery_soc"
+    pv_power: "sensor.fox_ess_pv_power"
+    feed_in_power: "sensor.fox_ess_feed_in_power"
+    load_power: "sensor.fox_ess_load_power"
+    grid_consumption: "sensor.fox_ess_grid_consumption"
+    battery_charge_power: "sensor.fox_ess_bat_charge_power"
+    battery_discharge_power: "sensor.fox_ess_bat_discharge_power"
+    work_mode: "sensor.fox_ess_work_mode"
+    max_soc: "number.fox_ess_max_soc"
+    min_soc: "number.fox_ess_min_soc"
+    force_charge_power: "number.fox_ess_force_charge_power"
+    force_discharge_power: "number.fox_ess_force_discharge_power"
+
+mqtt:
+  broker: "localhost"
+  port: 1883
+  username: ""
+  password: ""
+  topic_prefix: "octopus_export_optimizer"
+  ha_discovery_prefix: "homeassistant"
+
+db_path: "data/optimizer.db"
+log_level: "INFO"

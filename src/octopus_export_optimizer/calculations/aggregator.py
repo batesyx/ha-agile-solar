@@ -1,0 +1,90 @@
+"""Revenue aggregation service."""
+
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+from octopus_export_optimizer.models.revenue import RevenueInterval, RevenueSummary
+
+
+class Aggregator:
+    """Aggregates revenue intervals into day/month/rolling summaries."""
+
+    def __init__(self, local_tz: str = "Europe/London") -> None:
+        self.tz = ZoneInfo(local_tz)
+
+    def aggregate(
+        self,
+        intervals: list[RevenueInterval],
+        period_type: str,
+        period_key: str,
+    ) -> RevenueSummary:
+        """Aggregate a list of revenue intervals into a summary."""
+        now = datetime.now(timezone.utc)
+
+        if not intervals:
+            return RevenueSummary(
+                period_type=period_type,
+                period_key=period_key,
+                total_export_kwh=0.0,
+                agile_revenue_pence=0.0,
+                flat_revenue_pence=0.0,
+                uplift_pence=0.0,
+                avg_realised_rate_pence=0.0,
+                intervals_above_flat=0,
+                total_intervals=0,
+                calculated_at=now,
+            )
+
+        total_kwh = sum(i.export_kwh for i in intervals)
+        agile_rev = sum(i.agile_revenue_pence for i in intervals)
+        flat_rev = sum(i.flat_revenue_pence for i in intervals)
+        above_flat = sum(1 for i in intervals if i.is_uplift_positive)
+        avg_rate = agile_rev / total_kwh if total_kwh > 0 else 0.0
+
+        return RevenueSummary(
+            period_type=period_type,
+            period_key=period_key,
+            total_export_kwh=round(total_kwh, 4),
+            agile_revenue_pence=round(agile_rev, 4),
+            flat_revenue_pence=round(flat_rev, 4),
+            uplift_pence=round(agile_rev - flat_rev, 4),
+            avg_realised_rate_pence=round(avg_rate, 2),
+            intervals_above_flat=above_flat,
+            total_intervals=len(intervals),
+            calculated_at=now,
+        )
+
+    def day_boundaries(self, target_date: date) -> tuple[datetime, datetime]:
+        """Get UTC start/end boundaries for a local calendar day."""
+        local_start = datetime(
+            target_date.year, target_date.month, target_date.day, tzinfo=self.tz
+        )
+        local_end = local_start + timedelta(days=1)
+        return (
+            local_start.astimezone(timezone.utc),
+            local_end.astimezone(timezone.utc),
+        )
+
+    def month_boundaries(
+        self, year: int, month: int
+    ) -> tuple[datetime, datetime]:
+        """Get UTC start/end boundaries for a local calendar month."""
+        local_start = datetime(year, month, 1, tzinfo=self.tz)
+        if month == 12:
+            local_end = datetime(year + 1, 1, 1, tzinfo=self.tz)
+        else:
+            local_end = datetime(year, month + 1, 1, tzinfo=self.tz)
+        return (
+            local_start.astimezone(timezone.utc),
+            local_end.astimezone(timezone.utc),
+        )
+
+    def rolling_boundaries(
+        self, days: int, now: datetime | None = None
+    ) -> tuple[datetime, datetime]:
+        """Get UTC start/end boundaries for a rolling window."""
+        if now is None:
+            now = datetime.now(timezone.utc)
+        return (now - timedelta(days=days), now)

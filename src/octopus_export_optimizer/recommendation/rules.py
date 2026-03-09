@@ -1,0 +1,266 @@
+"""Individual recommendation rules.
+
+Each rule is a standalone function that evaluates a specific
+business condition and returns a Recommendation if it applies,
+or None if it doesn't.
+
+Rules are evaluated in priority order by the engine.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+from octopus_export_optimizer.config.settings import BatterySettings, ThresholdSettings
+from octopus_export_optimizer.models.recommendation import (
+    Recommendation,
+    RecommendationInputSnapshot,
+)
+from octopus_export_optimizer.recommendation.types import ReasonCode, RecommendationState
+
+
+class Rule:
+    """Base class for recommendation rules."""
+
+    def __init__(
+        self,
+        thresholds: ThresholdSettings,
+        battery: BatterySettings,
+    ) -> None:
+        self.thresholds = thresholds
+        self.battery = battery
+
+    def evaluate(self, snapshot: RecommendationInputSnapshot) -> Recommendation | None:
+        raise NotImplementedError
+
+    @staticmethod
+    def _normalize_soc(soc_pct: float) -> float:
+        """Normalize SoC to 0.0-1.0 range whether input is percentage or fraction."""
+        return soc_pct / 100.0 if soc_pct > 1.0 else soc_pct
+
+    def _make_recommendation(
+        self,
+        snapshot: RecommendationInputSnapshot,
+        state: RecommendationState,
+        reason_code: ReasonCode,
+        explanation: str,
+        battery_aware: bool = False,
+        valid_minutes: int = 30,
+    ) -> Recommendation:
+        return Recommendation(
+            timestamp=snapshot.timestamp,
+            state=state,
+            reason_code=reason_code,
+            explanation=explanation,
+            battery_aware=battery_aware,
+            valid_until=snapshot.timestamp + timedelta(minutes=valid_minutes),
+            input_snapshot_id=snapshot.id,
+        )
+
+
+class InsufficientDataRule(Rule):
+    """Return INSUFFICIENT_DATA if tariff data is missing or stale."""
+
+    def evaluate(self, snapshot: RecommendationInputSnapshot) -> Recommendation | None:
+        if snapshot.current_export_rate_pence is None:
+            return self._make_recommendation(
+                snapshot,
+                RecommendationState.INSUFFICIENT_DATA,
+                ReasonCode.NO_TARIFF_DATA,
+                "No current export tariff rate available. "
+                "Cannot make a recommendation without tariff data.",
+            )
+
+        if snapshot.upcoming_rates_count == 0:
+            return self._make_recommendation(
+                snapshot,
+                RecommendationState.INSUFFICIENT_DATA,
+                ReasonCode.NO_TARIFF_DATA,
+                "No upcoming export rates available. "
+                "Look-ahead window is empty.",
+            )
+
+        return None
+
+
+class ChargeForLaterExportRule(Rule):
+    """Recommend charging when cheap import + strong upcoming export."""
+
+    def evaluate(self, snapshot: RecommendationInputSnapshot) -> Recommendation | None:
+        if not self.thresholds.allow_import_arbitrage:
+            return None
+
+        if snapshot.best_upcoming_rate_pence is None:
+            return None
+
+        if snapshot.current_import_rate_pence is None:
+            return None
+
+        if snapshot.battery_soc_pct is None:
+            return None
+
+        is_cheap_import = (
+            snapshot.current_import_rate_pence
+            <= self.thresholds.cheap_import_threshold_pence
+        )
+        is_strong_upcoming = (
+            snapshot.best_upcoming_rate_pence
+            >= self.thresholds.export_now_threshold_pence * 1.5
+        )
+        soc = self._normalize_soc(snapshot.battery_soc_pct)
+        has_headroom = soc < 0.95
+
+        if is_cheap_import and is_strong_upcoming and has_headroom:
+            return self._make_recommendation(
+                snapshot,
+                RecommendationState.CHARGE_FOR_LATER_EXPORT,
+                ReasonCode.CHEAP_IMPORT_HIGH_EXPORT_LATER,
+                f"Import rate is cheap at {snapshot.current_import_rate_pence:.1f}p/kWh. "
+                f"Strong export rate of {snapshot.best_upcoming_rate_pence:.1f}p/kWh coming "
+                f"at {snapshot.best_upcoming_slot_start}. "
+                f"Battery at {soc:.0%} - charging to capture arbitrage.",
+                battery_aware=True,
+            )
+
+        return None
+
+
+class ExportNowRule(Rule):
+    """Recommend exporting when rate is high and no better slot ahead."""
+
+    def evaluate(self, snapshot: RecommendationInputSnapshot) -> Recommendation | None:
+        if snapshot.current_export_rate_pence is None:
+            return None
+
+        rate = snapshot.current_export_rate_pence
+        threshold = self.thresholds.export_now_threshold_pence
+
+        if rate < threshold:
+            return None
+
+        # Check if a meaningfully better slot exists later
+        if snapshot.best_upcoming_rate_pence is not None:
+            delta = snapshot.best_upcoming_rate_pence - rate
+            if delta > self.thresholds.better_slot_delta_pence:
+                return None  # Let HoldBatteryRule handle this
+
+        # Check battery state if available
+        battery_aware = snapshot.battery_soc_pct is not None
+        if battery_aware:
+            soc = self._normalize_soc(snapshot.battery_soc_pct)
+            if soc < self.thresholds.minimum_soc_for_export:
+                # Battery too low to export — check if solar is feeding in
+                if snapshot.feed_in_kw is not None and snapshot.feed_in_kw > self.thresholds.minimum_meaningful_export_kw:
+                    return self._make_recommendation(
+                        snapshot,
+                        RecommendationState.EXPORT_NOW,
+                        ReasonCode.HIGH_RATE_SOLAR_EXPORT,
+                        f"Export rate is {rate:.1f}p/kWh (above {threshold:.1f}p threshold). "
+                        f"Battery SoC too low for discharge ({soc:.0%}), "
+                        f"but solar feed-in of {snapshot.feed_in_kw:.1f}kW is being exported.",
+                        battery_aware=True,
+                    )
+                return None  # Not enough to export
+
+            # Battery has enough charge
+            exportable = snapshot.exportable_battery_kwh or 0
+            return self._make_recommendation(
+                snapshot,
+                RecommendationState.EXPORT_NOW,
+                ReasonCode.HIGH_RATE_WITH_BATTERY,
+                f"Export rate is {rate:.1f}p/kWh (above {threshold:.1f}p threshold). "
+                f"No meaningfully better slot ahead. "
+                f"Battery at {soc:.0%} with "
+                f"~{exportable:.1f}kWh exportable above reserve.",
+                battery_aware=True,
+            )
+
+        # Tariff-only recommendation (no battery data)
+        return self._make_recommendation(
+            snapshot,
+            RecommendationState.EXPORT_NOW,
+            ReasonCode.HIGH_EXPORT_RATE,
+            f"Export rate is {rate:.1f}p/kWh (above {threshold:.1f}p threshold). "
+            f"No meaningfully better slot ahead.",
+        )
+
+
+class HoldBatteryRule(Rule):
+    """Recommend holding when a better slot is coming."""
+
+    def evaluate(self, snapshot: RecommendationInputSnapshot) -> Recommendation | None:
+        if snapshot.current_export_rate_pence is None:
+            return None
+
+        if snapshot.best_upcoming_rate_pence is None:
+            return None
+
+        rate = snapshot.current_export_rate_pence
+        best_upcoming = snapshot.best_upcoming_rate_pence
+        delta = best_upcoming - rate
+
+        if delta <= self.thresholds.better_slot_delta_pence:
+            return None
+
+        # Current rate should be at least somewhat attractive
+        if rate < self.thresholds.export_now_threshold_pence * 0.5:
+            return None
+
+        # Check battery state
+        battery_aware = snapshot.battery_soc_pct is not None
+        if battery_aware:
+            soc = self._normalize_soc(snapshot.battery_soc_pct)
+            if soc < self.thresholds.reserve_soc_floor:
+                return None  # Nothing to hold
+
+            # Consider remaining generation opportunity
+            gen_factor = snapshot.remaining_generation_heuristic
+            gen_note = ""
+            if gen_factor is not None and gen_factor > 0.3:
+                gen_note = (
+                    f" Remaining generation opportunity is moderate ({gen_factor:.0%}), "
+                    f"so holding battery headroom may also capture incoming solar."
+                )
+
+            return self._make_recommendation(
+                snapshot,
+                RecommendationState.HOLD_BATTERY,
+                ReasonCode.BETTER_SLOT_HIGH_SOC,
+                f"Current rate is {rate:.1f}p/kWh but a better slot of "
+                f"{best_upcoming:.1f}p/kWh is coming at {snapshot.best_upcoming_slot_start}. "
+                f"Battery at {soc:.0%} - holding for better rate.{gen_note}",
+                battery_aware=True,
+            )
+
+        # Tariff-only hold
+        return self._make_recommendation(
+            snapshot,
+            RecommendationState.HOLD_BATTERY,
+            ReasonCode.BETTER_SLOT_COMING,
+            f"Current rate is {rate:.1f}p/kWh but a better slot of "
+            f"{best_upcoming:.1f}p/kWh is coming at {snapshot.best_upcoming_slot_start}. "
+            f"Consider holding battery for the better rate.",
+        )
+
+
+class NormalSelfConsumptionRule(Rule):
+    """Default fallback: normal self-consumption."""
+
+    def evaluate(self, snapshot: RecommendationInputSnapshot) -> Recommendation | None:
+        rate = snapshot.current_export_rate_pence
+        if rate is not None and rate < self.thresholds.export_now_threshold_pence:
+            return self._make_recommendation(
+                snapshot,
+                RecommendationState.NORMAL_SELF_CONSUMPTION,
+                ReasonCode.LOW_EXPORT_RATE,
+                f"Current export rate is {rate:.1f}p/kWh, below the "
+                f"{self.thresholds.export_now_threshold_pence:.1f}p threshold. "
+                f"No special action recommended — operate normally.",
+            )
+
+        return self._make_recommendation(
+            snapshot,
+            RecommendationState.NORMAL_SELF_CONSUMPTION,
+            ReasonCode.DEFAULT_OPERATION,
+            "No specific export opportunity identified. Operating normally.",
+        )
