@@ -1,10 +1,11 @@
 {
   "name": "Octopus Export Optimizer",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "slug": "octopus_export_optimizer",
   "description": "Optimizes electricity export on Octopus Agile/Variable tariffs with FoxESS inverter",
   "url": "https://github.com/batesyx/ha-agile-solar",
-  "arch": ["aarch64", "amd64", "armv7"],
+  "arch": ["aarch64", "amd64"],
+  "image": "ghcr.io/batesyx/ha-agile-solar-{arch}",
   "startup": "application",
   "boot": "auto",
   "hassio_api": true,
