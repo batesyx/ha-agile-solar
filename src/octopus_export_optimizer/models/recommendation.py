@@ -49,3 +49,4 @@ class Recommendation(BaseModel):
     battery_aware: bool
     valid_until: datetime | None = None
     input_snapshot_id: str
+    target_max_soc: int | None = None

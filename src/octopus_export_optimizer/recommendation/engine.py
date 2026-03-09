@@ -11,7 +11,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from octopus_export_optimizer.config.settings import BatterySettings, ThresholdSettings
+from octopus_export_optimizer.config.settings import (
+    BatterySettings,
+    InverterControlSettings,
+    ThresholdSettings,
+)
 from octopus_export_optimizer.models.ha_state import HaStateSnapshot
 from octopus_export_optimizer.models.recommendation import (
     Recommendation,
@@ -24,6 +28,7 @@ from octopus_export_optimizer.recommendation.rules import (
     HoldBatteryRule,
     InsufficientDataRule,
     NormalSelfConsumptionRule,
+    OvernightChargeRule,
     Rule,
 )
 
@@ -39,11 +44,19 @@ class RecommendationEngine:
         self,
         thresholds: ThresholdSettings,
         battery: BatterySettings,
+        inverter_control: InverterControlSettings | None = None,
     ) -> None:
         self.thresholds = thresholds
         self.battery = battery
+        self.inverter_control = inverter_control or InverterControlSettings()
         self.rules: list[Rule] = [
             InsufficientDataRule(thresholds, battery),
+            OvernightChargeRule(
+                thresholds,
+                battery,
+                cheap_rate_start_hour=self.inverter_control.cheap_rate_start_hour,
+                cheap_rate_end_hour=self.inverter_control.cheap_rate_end_hour,
+            ),
             ChargeForLaterExportRule(thresholds, battery),
             ExportNowRule(thresholds, battery),
             HoldBatteryRule(thresholds, battery),
@@ -51,32 +64,49 @@ class RecommendationEngine:
         ]
 
     def evaluate(
-        self, snapshot: RecommendationInputSnapshot
+        self,
+        snapshot: RecommendationInputSnapshot,
+        upcoming_12h_rates: list[TariffSlot] | None = None,
     ) -> Recommendation:
         """Evaluate rules and return a recommendation.
 
         Always returns a recommendation — the fallback rule
         (NormalSelfConsumption) guarantees this.
+
+        If upcoming_12h_rates is provided, calculates target_max_soc:
+        100% if any rate exceeds high_export_threshold, else 90%.
         """
         for rule in self.rules:
             result = rule.evaluate(snapshot)
             if result is not None:
-                return result
+                break
+        else:
+            # Should never reach here due to fallback rule, but just in case
+            from octopus_export_optimizer.recommendation.types import (
+                ReasonCode,
+                RecommendationState,
+            )
 
-        # Should never reach here due to fallback rule, but just in case
-        from octopus_export_optimizer.recommendation.types import (
-            ReasonCode,
-            RecommendationState,
-        )
+            result = Recommendation(
+                timestamp=snapshot.timestamp,
+                state=RecommendationState.NORMAL_SELF_CONSUMPTION,
+                reason_code=ReasonCode.DEFAULT_OPERATION,
+                explanation="Fallback: no rule matched.",
+                battery_aware=False,
+                input_snapshot_id=snapshot.id,
+            )
 
-        return Recommendation(
-            timestamp=snapshot.timestamp,
-            state=RecommendationState.NORMAL_SELF_CONSUMPTION,
-            reason_code=ReasonCode.DEFAULT_OPERATION,
-            explanation="Fallback: no rule matched.",
-            battery_aware=False,
-            input_snapshot_id=snapshot.id,
-        )
+        # Calculate target Max SoC based on upcoming export rates
+        if upcoming_12h_rates:
+            threshold = self.inverter_control.high_export_threshold_for_full_charge
+            has_strong_export = any(
+                s.rate_inc_vat_pence >= threshold for s in upcoming_12h_rates
+            )
+            result.target_max_soc = 100 if has_strong_export else 90
+        else:
+            result.target_max_soc = 90
+
+        return result
 
     def build_snapshot(
         self,
@@ -86,11 +116,15 @@ class RecommendationEngine:
         current_import: TariffSlot | None,
         ha_state: HaStateSnapshot | None,
         remaining_generation: float | None = None,
+        minimum_soc_override: float | None = None,
     ) -> RecommendationInputSnapshot:
         """Build a RecommendationInputSnapshot from available data.
 
         Calculates derived battery metrics (exportable energy,
         headroom) from the raw state and configuration.
+
+        If minimum_soc_override is provided, it replaces the static
+        minimum_soc_for_export threshold for reserve calculations.
         """
         # Find best upcoming rate
         best_upcoming_rate: float | None = None
@@ -121,7 +155,12 @@ class RecommendationEngine:
             if battery_soc is not None:
                 soc_fraction = battery_soc / 100.0 if battery_soc > 1.0 else battery_soc
                 current_kwh = soc_fraction * self.battery.capacity_kwh
-                reserve_kwh = self.thresholds.reserve_soc_floor * self.battery.capacity_kwh
+                effective_floor = (
+                    max(self.thresholds.reserve_soc_floor, minimum_soc_override)
+                    if minimum_soc_override is not None
+                    else self.thresholds.reserve_soc_floor
+                )
+                reserve_kwh = effective_floor * self.battery.capacity_kwh
                 exportable_kwh = max(0.0, current_kwh - reserve_kwh)
                 headroom_kwh = max(
                     0.0, self.battery.capacity_kwh - current_kwh

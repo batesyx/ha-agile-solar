@@ -12,6 +12,8 @@ from datetime import datetime
 
 import paho.mqtt.client as mqtt
 
+from typing import Callable
+
 from octopus_export_optimizer.config.settings import MqttSettings
 from octopus_export_optimizer.models.ha_state import HaStateSnapshot
 from octopus_export_optimizer.models.recommendation import Recommendation
@@ -157,6 +159,86 @@ class MqttPublisher:
             retain=True,
         )
 
+    def publish_control_state(
+        self,
+        auto_control_enabled: bool,
+        extra_buffer_kwh: float,
+        commanded_mode: str | None,
+        evening_reserve_soc: float | None,
+        last_command_info: str | None,
+    ) -> None:
+        """Publish inverter control state entities."""
+        self._publish(
+            f"{self.prefix}/control/auto_control/state",
+            "ON" if auto_control_enabled else "OFF",
+            retain=True,
+        )
+        self._publish(
+            f"{self.prefix}/control/extra_buffer/state",
+            f"{extra_buffer_kwh:.1f}",
+            retain=True,
+        )
+        self._publish(
+            f"{self.prefix}/control/commanded_mode",
+            commanded_mode or "unknown",
+            retain=True,
+        )
+        self._publish(
+            f"{self.prefix}/control/evening_reserve_soc",
+            f"{evening_reserve_soc:.0%}" if evening_reserve_soc is not None else "N/A",
+            retain=True,
+        )
+        self._publish(
+            f"{self.prefix}/control/last_command",
+            last_command_info or "No commands sent",
+            retain=True,
+        )
+
+    def subscribe_kill_switch(self, on_toggle: Callable[[bool], None]) -> None:
+        """Subscribe to auto control kill switch command topic."""
+        topic = f"{self.prefix}/control/auto_control/set"
+
+        def _on_message(
+            client: mqtt.Client, userdata: object, msg: mqtt.MQTTMessage
+        ) -> None:
+            payload = msg.payload.decode().upper()
+            enabled = payload in ("ON", "TRUE", "1")
+            logger.info("Kill switch toggled: %s", payload)
+            on_toggle(enabled)
+            # Echo back state
+            self._publish(
+                f"{self.prefix}/control/auto_control/state",
+                "ON" if enabled else "OFF",
+                retain=True,
+            )
+
+        self._client.subscribe(topic)
+        self._client.message_callback_add(topic, _on_message)
+        logger.info("Subscribed to kill switch: %s", topic)
+
+    def subscribe_buffer(self, on_change: Callable[[float], None]) -> None:
+        """Subscribe to extra buffer slider command topic."""
+        topic = f"{self.prefix}/control/extra_buffer/set"
+
+        def _on_message(
+            client: mqtt.Client, userdata: object, msg: mqtt.MQTTMessage
+        ) -> None:
+            try:
+                value = float(msg.payload.decode())
+                logger.info("Buffer slider changed: %.1f kWh", value)
+                on_change(value)
+                self._publish(
+                    f"{self.prefix}/control/extra_buffer/state",
+                    f"{value:.1f}",
+                    retain=True,
+                )
+            except ValueError:
+                logger.warning("Invalid buffer value: %s", msg.payload)
+
+        self._client.subscribe(topic)
+        self._client.message_callback_add(topic, _on_message)
+        logger.info("Subscribed to buffer slider: %s", topic)
+
     def _publish(self, topic: str, payload: str, retain: bool = False) -> None:
         """Publish a message to MQTT."""
         self._client.publish(topic, payload, retain=retain)
@@ -199,6 +281,64 @@ class MqttPublisher:
                 f"/octopus_export_optimizer/{object_id}/config"
             )
             self._publish(topic, json.dumps(config), retain=True)
+
+        # Control sensors
+        control_sensors = [
+            ("commanded_mode", "control/commanded_mode", "Commanded Work Mode", None, "mdi:tune"),
+            ("evening_reserve_soc", "control/evening_reserve_soc", "Evening Reserve SoC", None, "mdi:battery-alert"),
+            ("last_command", "control/last_command", "Last Inverter Command", None, "mdi:history"),
+        ]
+        for object_id, state_suffix, name, unit, icon in control_sensors:
+            config = {
+                "name": name,
+                "state_topic": f"{self.prefix}/{state_suffix}",
+                "unique_id": f"octopus_export_optimizer_{object_id}",
+                "device": DEVICE_INFO,
+                "icon": icon,
+            }
+            if unit:
+                config["unit_of_measurement"] = unit
+            topic = (
+                f"{self.discovery_prefix}/sensor"
+                f"/octopus_export_optimizer/{object_id}/config"
+            )
+            self._publish(topic, json.dumps(config), retain=True)
+
+        # Kill switch (MQTT switch entity, default OFF)
+        switch_config = {
+            "name": "Auto Inverter Control",
+            "state_topic": f"{self.prefix}/control/auto_control/state",
+            "command_topic": f"{self.prefix}/control/auto_control/set",
+            "unique_id": "octopus_export_optimizer_auto_control",
+            "device": DEVICE_INFO,
+            "icon": "mdi:robot",
+            "payload_on": "ON",
+            "payload_off": "OFF",
+        }
+        topic = (
+            f"{self.discovery_prefix}/switch"
+            f"/octopus_export_optimizer/auto_control/config"
+        )
+        self._publish(topic, json.dumps(switch_config), retain=True)
+
+        # Buffer slider (MQTT number entity, 0-10 kWh)
+        number_config = {
+            "name": "Extra Evening Buffer",
+            "state_topic": f"{self.prefix}/control/extra_buffer/state",
+            "command_topic": f"{self.prefix}/control/extra_buffer/set",
+            "unique_id": "octopus_export_optimizer_extra_buffer",
+            "device": DEVICE_INFO,
+            "icon": "mdi:pot-steam",
+            "min": 0,
+            "max": 10,
+            "step": 0.5,
+            "unit_of_measurement": "kWh",
+        }
+        topic = (
+            f"{self.discovery_prefix}/number"
+            f"/octopus_export_optimizer/extra_buffer/config"
+        )
+        self._publish(topic, json.dumps(number_config), retain=True)
 
         # Binary sensor for service status
         status_config = {

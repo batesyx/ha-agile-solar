@@ -83,6 +83,56 @@ class InsufficientDataRule(Rule):
         return None
 
 
+class OvernightChargeRule(Rule):
+    """Always charge during cheap import hours (e.g. Intelligent Go overnight).
+
+    This ensures the battery is charged overnight for self-consumption
+    and potential export the next day, regardless of export rates.
+    """
+
+    def __init__(
+        self,
+        thresholds: ThresholdSettings,
+        battery: BatterySettings,
+        cheap_rate_start_hour: float = 23.5,
+        cheap_rate_end_hour: float = 5.5,
+        target_soc_pct: float = 0.95,
+    ) -> None:
+        super().__init__(thresholds, battery)
+        self.cheap_rate_start_hour = cheap_rate_start_hour
+        self.cheap_rate_end_hour = cheap_rate_end_hour
+        self.target_soc_pct = target_soc_pct
+
+    def _is_cheap_window(self, now: datetime) -> bool:
+        """Check if current time is within cheap import hours."""
+        hour = now.hour + now.minute / 60.0
+        if self.cheap_rate_start_hour > self.cheap_rate_end_hour:
+            # Overnight window (e.g. 23:30 to 05:30)
+            return hour >= self.cheap_rate_start_hour or hour < self.cheap_rate_end_hour
+        return self.cheap_rate_start_hour <= hour < self.cheap_rate_end_hour
+
+    def evaluate(self, snapshot: RecommendationInputSnapshot) -> Recommendation | None:
+        if not self._is_cheap_window(snapshot.timestamp):
+            return None
+
+        if snapshot.battery_soc_pct is None:
+            return None
+
+        soc = self._normalize_soc(snapshot.battery_soc_pct)
+        if soc >= self.target_soc_pct:
+            return None  # Already charged enough
+
+        return self._make_recommendation(
+            snapshot,
+            RecommendationState.CHARGE_FOR_LATER_EXPORT,
+            ReasonCode.OVERNIGHT_CHARGE_STRATEGY,
+            f"Cheap import window active. "
+            f"Battery at {soc:.0%} — charging to {self.target_soc_pct:.0%} "
+            f"for tomorrow's self-consumption and export.",
+            battery_aware=True,
+        )
+
+
 class ChargeForLaterExportRule(Rule):
     """Recommend charging when cheap import + strong upcoming export."""
 

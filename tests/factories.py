@@ -77,7 +77,7 @@ def make_recommendation_snapshot(
     timestamp: datetime | None = None,
 ) -> RecommendationInputSnapshot:
     """Create a RecommendationInputSnapshot with sensible defaults."""
-    now = timestamp or datetime.now(timezone.utc)
+    now = timestamp or datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc)
     return RecommendationInputSnapshot(
         timestamp=now,
         battery_soc_pct=battery_soc_pct,

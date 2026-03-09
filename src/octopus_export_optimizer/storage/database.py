@@ -6,12 +6,13 @@ import logging
 import sqlite3
 from pathlib import Path
 
-from octopus_export_optimizer.storage.migrations import v001_initial
+from octopus_export_optimizer.storage.migrations import v001_initial, v002_inverter_commands
 
 logger = logging.getLogger(__name__)
 
 MIGRATIONS = [
     (1, v001_initial),
+    (2, v002_inverter_commands),
 ]
 
 

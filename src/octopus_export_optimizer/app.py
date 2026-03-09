@@ -14,12 +14,18 @@ from octopus_export_optimizer.calculations.aggregator import Aggregator
 from octopus_export_optimizer.calculations.revenue_calculator import RevenueCalculator
 from octopus_export_optimizer.calculations.solar_profile import SolarProfile
 from octopus_export_optimizer.config.settings import AppSettings
+from octopus_export_optimizer.control.evening_reserve import (
+    calculate_reserve_soc,
+    get_rolling_avg_evening_load,
+)
+from octopus_export_optimizer.control.inverter_controller import InverterController
 from octopus_export_optimizer.ingestion.ha_state_ingester import HaStateIngester
 from octopus_export_optimizer.ingestion.meter_ingester import MeterIngester
 from octopus_export_optimizer.ingestion.octopus_client import OctopusClient
 from octopus_export_optimizer.ingestion.tariff_ingester import TariffIngester
 from octopus_export_optimizer.publishing.mqtt_publisher import MqttPublisher
 from octopus_export_optimizer.recommendation.engine import RecommendationEngine
+from octopus_export_optimizer.storage.command_repo import CommandRepo
 from octopus_export_optimizer.storage.database import Database
 from octopus_export_optimizer.storage.ha_state_repo import HaStateRepo
 from octopus_export_optimizer.storage.job_repo import JobRepo
@@ -46,6 +52,7 @@ class Application:
         self.revenue_repo = RevenueRepo(self.db)
         self.recommendation_repo = RecommendationRepo(self.db)
         self.job_repo = JobRepo(self.db)
+        self.command_repo = CommandRepo(self.db)
 
         # Ingestion
         self.octopus_client: OctopusClient | None = None
@@ -59,7 +66,12 @@ class Application:
         self.solar_profile = SolarProfile(settings.solar)
 
         # Recommendation
-        self.engine = RecommendationEngine(settings.thresholds, settings.battery)
+        self.engine = RecommendationEngine(
+            settings.thresholds, settings.battery, settings.inverter_control
+        )
+
+        # Inverter control
+        self.inverter_controller: InverterController | None = None
 
         # Publishing
         self.mqtt_publisher: MqttPublisher | None = None
@@ -110,10 +122,30 @@ class Application:
                 self.settings.home_assistant, self.ha_state_repo
             )
 
+        # Inverter control
+        if (
+            self.settings.inverter_control.enabled
+            and self.settings.home_assistant.token.get_secret_value()
+        ):
+            self.inverter_controller = InverterController(
+                self.settings.home_assistant,
+                self.settings.inverter_control,
+                self.command_repo,
+            )
+            logger.info("Inverter control enabled")
+
         if self.settings.mqtt.broker:
             self.mqtt_publisher = MqttPublisher(self.settings.mqtt)
             try:
                 self.mqtt_publisher.connect()
+                # Subscribe to control topics
+                if self.inverter_controller:
+                    self.mqtt_publisher.subscribe_kill_switch(
+                        self.inverter_controller.set_auto_control
+                    )
+                    self.mqtt_publisher.subscribe_buffer(
+                        self.inverter_controller.set_extra_buffer
+                    )
             except Exception as e:
                 logger.warning("Could not connect to MQTT broker: %s", e)
                 self.mqtt_publisher = None
@@ -212,9 +244,27 @@ class Application:
         upcoming = self.tariff_repo.get_upcoming_export_rates(
             now, self.settings.thresholds.look_ahead_hours
         )
+        upcoming_12h = self.tariff_repo.get_upcoming_export_rates(now, 12.0)
         current_import = self.tariff_repo.get_current_import_rate(now)
         ha_state = self.ha_state_repo.get_latest()
         remaining_gen = self.solar_profile.remaining_generation_factor(now)
+
+        # Calculate dynamic evening reserve if controller is active
+        reserve: float | None = None
+        if self.inverter_controller:
+            extra_buffer = self.inverter_controller.extra_buffer_kwh
+            avg_load = get_rolling_avg_evening_load(
+                self.ha_state_repo,
+                now,
+                default_kw=self.settings.inverter_control.default_evening_load_kw,
+            )
+            reserve = calculate_reserve_soc(
+                now,
+                self.settings.inverter_control.cheap_rate_start_hour,
+                avg_load,
+                extra_buffer,
+                self.settings.battery.capacity_kwh,
+            )
 
         snapshot = self.engine.build_snapshot(
             now=now,
@@ -223,9 +273,17 @@ class Application:
             current_import=current_import,
             ha_state=ha_state,
             remaining_generation=remaining_gen,
+            minimum_soc_override=reserve,
         )
-        recommendation = self.engine.evaluate(snapshot)
+        recommendation = self.engine.evaluate(snapshot, upcoming_12h)
         self.recommendation_repo.save(recommendation, snapshot)
+
+        # Execute inverter control
+        if self.inverter_controller:
+            self._run_safe(
+                "inverter_control",
+                lambda: self.inverter_controller.execute(recommendation),
+            )
 
     def job_aggregate_summaries(self) -> None:
         """Aggregate revenue into day/month summaries."""
@@ -292,6 +350,41 @@ class Application:
 
         self.mqtt_publisher.publish_service_status(now)
 
+        # Publish inverter control state
+        if self.inverter_controller:
+            last_cmd = self.command_repo.get_latest()
+            last_cmd_info = None
+            if last_cmd:
+                last_cmd_info = (
+                    f"{last_cmd.new_mode} at "
+                    f"{last_cmd.timestamp.strftime('%H:%M:%S')} "
+                    f"({last_cmd.reason_code})"
+                )
+            # Calculate current evening reserve for display
+            avg_load = get_rolling_avg_evening_load(
+                self.ha_state_repo,
+                now,
+                default_kw=self.settings.inverter_control.default_evening_load_kw,
+            )
+            reserve = calculate_reserve_soc(
+                now,
+                self.settings.inverter_control.cheap_rate_start_hour,
+                avg_load,
+                self.inverter_controller.extra_buffer_kwh,
+                self.settings.battery.capacity_kwh,
+            )
+            self.mqtt_publisher.publish_control_state(
+                auto_control_enabled=self.inverter_controller.auto_control_enabled,
+                extra_buffer_kwh=self.inverter_controller.extra_buffer_kwh,
+                commanded_mode=(
+                    self.inverter_controller.last_commanded_mode.value
+                    if self.inverter_controller.last_commanded_mode
+                    else None
+                ),
+                evening_reserve_soc=reserve,
+                last_command_info=last_cmd_info,
+            )
+
     # ── Lifecycle ────────────────────────────────────────────────
 
     def _run_safe(self, name: str, fn: callable) -> None:
@@ -311,6 +404,8 @@ class Application:
         self.scheduler.shutdown(wait=False)
         if self.mqtt_publisher:
             self.mqtt_publisher.disconnect()
+        if self.inverter_controller:
+            self.inverter_controller.close()
         if self.octopus_client:
             self.octopus_client.close()
         if self.ha_state_ingester:

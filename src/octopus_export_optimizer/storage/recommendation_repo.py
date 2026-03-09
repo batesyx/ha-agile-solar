@@ -59,8 +59,8 @@ class RecommendationRepo:
         self.db.conn.execute(
             """INSERT OR REPLACE INTO recommendations
                (timestamp, state, reason_code, explanation,
-                battery_aware, valid_until, input_snapshot_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                battery_aware, valid_until, input_snapshot_id, target_max_soc)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 recommendation.timestamp.isoformat(),
                 recommendation.state.value,
@@ -71,6 +71,7 @@ class RecommendationRepo:
                 if recommendation.valid_until
                 else None,
                 recommendation.input_snapshot_id,
+                recommendation.target_max_soc,
             ),
         )
         self.db.conn.commit()
@@ -140,4 +141,5 @@ class RecommendationRepo:
             if row["valid_until"]
             else None,
             input_snapshot_id=row["input_snapshot_id"],
+            target_max_soc=row["target_max_soc"] if "target_max_soc" in row.keys() else None,
         )

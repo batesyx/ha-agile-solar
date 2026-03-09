@@ -19,6 +19,9 @@ IMPORT_TARIFF=$(jq -r '.import_tariff_code' "$CONFIG_PATH")
 BATTERY_CAPACITY=$(jq -r '.battery_capacity_kwh' "$CONFIG_PATH")
 FLAT_RATE=$(jq -r '.flat_export_rate_pence' "$CONFIG_PATH")
 EXPORT_THRESHOLD=$(jq -r '.export_now_threshold_pence' "$CONFIG_PATH")
+INVERTER_CONTROL=$(jq -r '.inverter_control_enabled // false' "$CONFIG_PATH")
+CHEAP_RATE_START=$(jq -r '.cheap_rate_start_hour // 23.5' "$CONFIG_PATH")
+CHEAP_RATE_END=$(jq -r '.cheap_rate_end_hour // 5.5' "$CONFIG_PATH")
 
 # HA Supervisor provides the token and URL automatically
 HA_TOKEN="${SUPERVISOR_TOKEN}"
@@ -102,6 +105,11 @@ mqtt:
   password: "${MQTT_PASS}"
   topic_prefix: "octopus_export_optimizer"
   ha_discovery_prefix: "homeassistant"
+
+inverter_control:
+  enabled: ${INVERTER_CONTROL}
+  cheap_rate_start_hour: ${CHEAP_RATE_START}
+  cheap_rate_end_hour: ${CHEAP_RATE_END}
 
 db_path: "/data/optimizer.db"
 log_level: "INFO"
