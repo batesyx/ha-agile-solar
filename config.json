@@ -19,10 +19,10 @@
     "export_serial": "",
     "import_mpan": "",
     "import_serial": "",
-    "export_product_code": "OUTGOING-VAR-24-10-26",
-    "export_tariff_code": "E-1R-OUTGOING-VAR-24-10-26-F",
+    "export_product_code": "AGILE-OUTGOING-19-05-13",
+    "export_tariff_code": "E-1R-AGILE-OUTGOING-19-05-13-A",
     "import_product_code": "INTELLI-VAR-24-10-29",
-    "import_tariff_code": "E-1R-INTELLI-VAR-24-10-29-F",
+    "import_tariff_code": "E-1R-INTELLI-VAR-24-10-29-A",
     "battery_capacity_kwh": 11.52,
     "flat_export_rate_pence": 12.0,
     "export_now_threshold_pence": 15.0
