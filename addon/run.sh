@@ -1,42 +1,34 @@
-#!/usr/bin/with-contenv bashio
-# shellcheck shell=bash
+#!/usr/bin/env bash
+set -e
 
-# Read config from HA add-on options
+# Read config from HA add-on options using jq
 CONFIG_PATH="/data/options.json"
 
-# Generate config.yaml from add-on options
-bashio::log.info "Generating config.yaml from add-on options..."
+echo "Generating config.yaml from add-on options..."
 
-OCTOPUS_API_KEY=$(bashio::config 'octopus_api_key')
-OCTOPUS_ACCOUNT=$(bashio::config 'octopus_account_number')
-EXPORT_MPAN=$(bashio::config 'export_mpan')
-EXPORT_SERIAL=$(bashio::config 'export_serial')
-IMPORT_MPAN=$(bashio::config 'import_mpan')
-IMPORT_SERIAL=$(bashio::config 'import_serial')
-EXPORT_PRODUCT=$(bashio::config 'export_product_code')
-EXPORT_TARIFF=$(bashio::config 'export_tariff_code')
-IMPORT_PRODUCT=$(bashio::config 'import_product_code')
-IMPORT_TARIFF=$(bashio::config 'import_tariff_code')
-BATTERY_CAPACITY=$(bashio::config 'battery_capacity_kwh')
-FLAT_RATE=$(bashio::config 'flat_export_rate_pence')
-EXPORT_THRESHOLD=$(bashio::config 'export_now_threshold_pence')
+OCTOPUS_API_KEY=$(jq -r '.octopus_api_key' "$CONFIG_PATH")
+OCTOPUS_ACCOUNT=$(jq -r '.octopus_account_number' "$CONFIG_PATH")
+EXPORT_MPAN=$(jq -r '.export_mpan' "$CONFIG_PATH")
+EXPORT_SERIAL=$(jq -r '.export_serial' "$CONFIG_PATH")
+IMPORT_MPAN=$(jq -r '.import_mpan' "$CONFIG_PATH")
+IMPORT_SERIAL=$(jq -r '.import_serial' "$CONFIG_PATH")
+EXPORT_PRODUCT=$(jq -r '.export_product_code' "$CONFIG_PATH")
+EXPORT_TARIFF=$(jq -r '.export_tariff_code' "$CONFIG_PATH")
+IMPORT_PRODUCT=$(jq -r '.import_product_code' "$CONFIG_PATH")
+IMPORT_TARIFF=$(jq -r '.import_tariff_code' "$CONFIG_PATH")
+BATTERY_CAPACITY=$(jq -r '.battery_capacity_kwh' "$CONFIG_PATH")
+FLAT_RATE=$(jq -r '.flat_export_rate_pence' "$CONFIG_PATH")
+EXPORT_THRESHOLD=$(jq -r '.export_now_threshold_pence' "$CONFIG_PATH")
 
 # HA Supervisor provides the token and URL automatically
 HA_TOKEN="${SUPERVISOR_TOKEN}"
 HA_URL="http://supervisor/core"
 
-# MQTT from HA services API
-if bashio::services.available "mqtt"; then
-    MQTT_HOST=$(bashio::services mqtt "host")
-    MQTT_PORT=$(bashio::services mqtt "port")
-    MQTT_USER=$(bashio::services mqtt "username")
-    MQTT_PASS=$(bashio::services mqtt "password")
-else
-    MQTT_HOST="localhost"
-    MQTT_PORT="1883"
-    MQTT_USER=""
-    MQTT_PASS=""
-fi
+# MQTT from Supervisor services API
+MQTT_HOST=$(curl -s -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" http://supervisor/services/mqtt 2>/dev/null | jq -r '.data.host // "localhost"')
+MQTT_PORT=$(curl -s -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" http://supervisor/services/mqtt 2>/dev/null | jq -r '.data.port // 1883')
+MQTT_USER=$(curl -s -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" http://supervisor/services/mqtt 2>/dev/null | jq -r '.data.username // empty')
+MQTT_PASS=$(curl -s -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" http://supervisor/services/mqtt 2>/dev/null | jq -r '.data.password // empty')
 
 cat > /data/config.yaml << YAML
 octopus:
@@ -115,5 +107,5 @@ db_path: "/data/optimizer.db"
 log_level: "INFO"
 YAML
 
-bashio::log.info "Starting Octopus Export Optimizer..."
+echo "Starting Octopus Export Optimizer..."
 exec python -m octopus_export_optimizer -c /data/config.yaml

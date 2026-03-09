@@ -4,7 +4,7 @@ FROM ${BUILD_FROM}
 WORKDIR /app
 
 # Install build dependencies for compiled packages
-RUN apk add --no-cache gcc musl-dev
+RUN apk add --no-cache gcc musl-dev jq curl
 
 # Copy and install Python package
 COPY pyproject.toml ./
@@ -12,9 +12,6 @@ COPY src/ ./src/
 
 RUN pip install --no-cache-dir .
 
-# Copy add-on run script (s6-overlay expects it here)
-COPY addon/run.sh /etc/s6-overlay/s6-rc.d/octopus-export-optimizer/run
-RUN chmod a+x /etc/s6-overlay/s6-rc.d/octopus-export-optimizer/run \
-    && echo "longrun" > /etc/s6-overlay/s6-rc.d/octopus-export-optimizer/type \
-    && mkdir -p /etc/s6-overlay/s6-rc.d/user/contents.d \
-    && touch /etc/s6-overlay/s6-rc.d/user/contents.d/octopus-export-optimizer
+# Copy add-on run script
+COPY addon/run.sh /
+RUN chmod a+x /run.sh
