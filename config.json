@@ -1,6 +1,6 @@
 {
   "name": "Octopus Export Optimizer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "slug": "octopus_export_optimizer",
   "description": "Optimizes electricity export on Octopus Agile/Variable tariffs with FoxESS inverter",
   "url": "https://github.com/batesyx/ha-agile-solar",
@@ -9,7 +9,7 @@
   "boot": "auto",
   "hassio_api": true,
   "homeassistant_api": true,
-  "services": ["mqtt:need"],
+  "services": ["mqtt:want"],
   "map": ["share:rw"],
   "options": {
     "octopus_api_key": "",
@@ -40,6 +40,5 @@
     "battery_capacity_kwh": "float",
     "flat_export_rate_pence": "float",
     "export_now_threshold_pence": "float"
-  },
-  "image": "ghcr.io/{build_from}"
+  }
 }
