@@ -133,16 +133,35 @@ class OvernightChargeRule(Rule):
             return None
 
         soc = self._normalize_soc(snapshot.battery_soc_pct)
-        if soc >= self.target_soc_pct:
+
+        # Use dynamic target if available, otherwise fall back to static
+        effective_target = (
+            snapshot.overnight_charge_target_pct
+            if snapshot.overnight_charge_target_pct is not None
+            else self.target_soc_pct
+        )
+
+        if soc >= effective_target:
             return None  # Already charged enough
+
+        if snapshot.overnight_charge_target_pct is not None:
+            explanation = (
+                f"Cheap import window active. "
+                f"Battery at {soc:.0%} — charging to {effective_target:.0%} "
+                f"(solar-aware target)."
+            )
+        else:
+            explanation = (
+                f"Cheap import window active. "
+                f"Battery at {soc:.0%} — charging to {self.target_soc_pct:.0%} "
+                f"for tomorrow's self-consumption and export."
+            )
 
         return self._make_recommendation(
             snapshot,
             RecommendationState.CHARGE_FOR_LATER_EXPORT,
             ReasonCode.OVERNIGHT_CHARGE_STRATEGY,
-            f"Cheap import window active. "
-            f"Battery at {soc:.0%} — charging to {self.target_soc_pct:.0%} "
-            f"for tomorrow's self-consumption and export.",
+            explanation,
             battery_aware=True,
         )
 

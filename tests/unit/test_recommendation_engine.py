@@ -1,5 +1,6 @@
 """Tests for the recommendation engine."""
 
+from copy import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -268,3 +269,36 @@ class TestMaxSocTiming:
         rates = self._make_rates(now, [1.0])
         result = soc_engine.evaluate(snapshot, upcoming_12h_rates=rates)
         assert result.target_max_soc == 100
+
+
+class TestOvernightMaxSocOverride:
+    """During overnight charging with dynamic target, max_soc matches the target."""
+
+    @pytest.fixture
+    def engine(self, thresholds, battery):
+        inverter = InverterControlSettings(
+            cheap_rate_start_hour=23.5,
+            cheap_rate_end_hour=5.5,
+        )
+        return RecommendationEngine(thresholds, battery, inverter_control=inverter)
+
+    def test_overnight_max_soc_matches_dynamic_target(self, engine):
+        """During overnight window with dynamic target, max_soc = dynamic target."""
+        snap = make_recommendation_snapshot(
+            battery_soc_pct=30.0,
+            timestamp=datetime(2026, 3, 11, 0, 0, tzinfo=timezone.utc),
+        )
+        snap = replace(snap, overnight_charge_target_pct=0.50)
+        result = engine.evaluate(snap)
+        assert result.state == RecommendationState.CHARGE_FOR_LATER_EXPORT
+        assert result.target_max_soc == 50
+
+    def test_overnight_max_soc_without_dynamic_uses_normal(self, engine):
+        """During overnight window without dynamic target, uses normal max_soc."""
+        snap = make_recommendation_snapshot(
+            battery_soc_pct=30.0,
+            timestamp=datetime(2026, 3, 11, 0, 0, tzinfo=timezone.utc),
+        )
+        result = engine.evaluate(snap)
+        assert result.state == RecommendationState.CHARGE_FOR_LATER_EXPORT
+        assert result.target_max_soc == 90  # Default when no upcoming rates

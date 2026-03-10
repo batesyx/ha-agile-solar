@@ -34,6 +34,7 @@ class RecommendationInputSnapshot(BaseModel):
     exportable_battery_kwh: float | None = None
     battery_headroom_kwh: float | None = None
     tariff_data_age_minutes: float | None = None
+    overnight_charge_target_pct: float | None = None
 
 
 class Recommendation(BaseModel):

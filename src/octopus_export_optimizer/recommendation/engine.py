@@ -130,6 +130,17 @@ class RecommendationEngine:
             result.target_discharge_kw = export_plan.discharge_kw
             result.export_plan_slots = len(export_plan.planned_slots)
 
+        # During overnight charging with a solar-aware target, override
+        # max_soc so the inverter physically stops at the dynamic level.
+        # Only applies to OvernightChargeRule (not ChargeForLaterExportRule).
+        if (
+            result.state == RecommendationState.CHARGE_FOR_LATER_EXPORT
+            and result.reason_code == ReasonCode.OVERNIGHT_CHARGE_STRATEGY
+            and snapshot.overnight_charge_target_pct is not None
+        ):
+            result.target_max_soc = int(snapshot.overnight_charge_target_pct * 100)
+            return result
+
         # Calculate target Max SoC based on upcoming export rates.
         # Only raise to 100% when the earliest high-rate slot is
         # within full_charge_lead_time_hours, to avoid sitting at
@@ -197,6 +208,7 @@ class RecommendationEngine:
         remaining_generation: float | None = None,
         minimum_soc_override: float | None = None,
         tariff_data_age_minutes: float | None = None,
+        overnight_charge_target_pct: float | None = None,
     ) -> RecommendationInputSnapshot:
         """Build a RecommendationInputSnapshot from available data.
 
@@ -274,4 +286,5 @@ class RecommendationEngine:
             exportable_battery_kwh=exportable_kwh,
             battery_headroom_kwh=headroom_kwh,
             tariff_data_age_minutes=tariff_data_age_minutes,
+            overnight_charge_target_pct=overnight_charge_target_pct,
         )

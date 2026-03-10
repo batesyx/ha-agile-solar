@@ -312,6 +312,65 @@ class Application:
                 self.settings.battery.capacity_kwh,
             )
 
+        # Calculate solar-aware overnight charge target
+        overnight_target: float | None = None
+        self._current_overnight_target = None
+        ic = self.settings.inverter_control
+        if ic.solar_overnight_enabled:
+            target_date = (
+                (now + timedelta(days=1)).date()
+                if now.hour >= 16
+                else now.date()
+            )
+            solar_start = datetime(
+                target_date.year, target_date.month, target_date.day,
+                11, 0, tzinfo=timezone.utc,
+            )
+            solar_end = datetime(
+                target_date.year, target_date.month, target_date.day,
+                16, 0, tzinfo=timezone.utc,
+            )
+            solar_hour_rates = self.tariff_repo.get_export_rates(
+                solar_start, solar_end
+            )
+
+            seasonal_max = (
+                ic.solar_months_max_soc_pct
+                if target_date.month in range(3, 10)
+                else ic.winter_max_soc_pct
+            )
+
+            if solar_hour_rates:
+                from octopus_export_optimizer.calculations.overnight_target import (
+                    calculate_overnight_charge_target,
+                )
+                ot_result = calculate_overnight_charge_target(
+                    solar_hour_rates=solar_hour_rates,
+                    night_import_rate_pence=self.settings.thresholds.cheap_import_threshold_pence,
+                    battery_capacity_kwh=self.settings.battery.capacity_kwh,
+                    minimum_overnight_soc_pct=ic.minimum_overnight_soc_pct,
+                    seasonal_max_soc_pct=seasonal_max,
+                    solar_charge_kwh_per_slot=ic.solar_charge_kwh_per_slot,
+                )
+                if ot_result:
+                    overnight_target = ot_result.target_soc_pct
+                    self._current_overnight_target = ot_result
+                    logger.info(
+                        "Overnight target: %.0f%% (%d solar slots, "
+                        "%.1fp est. savings, %.1f kWh headroom)",
+                        ot_result.target_soc_pct * 100,
+                        ot_result.solar_opportunity_slots,
+                        ot_result.estimated_savings_pence,
+                        ot_result.headroom_kwh,
+                    )
+            else:
+                # No rate data — still apply seasonal cap
+                overnight_target = seasonal_max
+                logger.info(
+                    "Overnight target: %.0f%% (seasonal baseline, no rate data)",
+                    seasonal_max * 100,
+                )
+
         snapshot = self.engine.build_snapshot(
             now=now,
             current_export=current_export,
@@ -321,6 +380,7 @@ class Application:
             remaining_generation=remaining_gen,
             minimum_soc_override=reserve,
             tariff_data_age_minutes=tariff_data_age,
+            overnight_charge_target_pct=overnight_target,
         )
         # Build export plan if enabled and there's exportable energy
         export_plan = None
@@ -467,6 +527,9 @@ class Application:
         rec = self.recommendation_repo.get_latest()
         self.mqtt_publisher.publish_recommendation(rec)
         self.mqtt_publisher.publish_export_plan(rec, self._current_export_plan, now)
+        self.mqtt_publisher.publish_overnight_target(
+            getattr(self, "_current_overnight_target", None)
+        )
 
         today_summary = self.revenue_repo.get_summary("day", today.isoformat())
         month_key = f"{today.year}-{today.month:02d}"

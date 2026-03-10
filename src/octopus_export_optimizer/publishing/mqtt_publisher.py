@@ -372,6 +372,38 @@ class MqttPublisher:
             retain=True,
         )
 
+    def publish_overnight_target(
+        self,
+        target: object | None,
+    ) -> None:
+        """Publish solar-aware overnight charge target sensors."""
+        if target is not None:
+            self._publish(
+                f"{self.prefix}/control/overnight_charge_target",
+                f"{target.target_soc_pct * 100:.0f}",
+                retain=True,
+            )
+            self._publish(
+                f"{self.prefix}/control/overnight_solar_slots",
+                str(target.solar_opportunity_slots),
+                retain=True,
+            )
+            self._publish(
+                f"{self.prefix}/control/overnight_savings",
+                f"{target.estimated_savings_pence:.1f}",
+                retain=True,
+            )
+        else:
+            self._publish(
+                f"{self.prefix}/control/overnight_charge_target", "N/A", retain=True,
+            )
+            self._publish(
+                f"{self.prefix}/control/overnight_solar_slots", "0", retain=True,
+            )
+            self._publish(
+                f"{self.prefix}/control/overnight_savings", "0.0", retain=True,
+            )
+
     def subscribe_kill_switch(self, on_toggle: Callable[[bool], None]) -> None:
         """Subscribe to auto control kill switch command topic."""
         topic = f"{self.prefix}/control/auto_control/set"
@@ -472,6 +504,9 @@ class MqttPublisher:
             ("target_max_soc", "control/target_max_soc", "Target Max SoC", "%", "mdi:battery-charging-high"),
             ("plan_next_slot_time", "plan/next_slot_time", "Next Planned Slot", None, "mdi:clock-start"),
             ("plan_next_slot_rate", "plan/next_slot_rate", "Next Planned Slot Rate", "p/kWh", "mdi:cash-clock"),
+            ("overnight_charge_target", "control/overnight_charge_target", "Overnight Charge Target", "%", "mdi:battery-clock"),
+            ("overnight_solar_slots", "control/overnight_solar_slots", "Overnight Solar Slots", None, "mdi:weather-sunny"),
+            ("overnight_savings", "control/overnight_savings", "Overnight Est. Savings", "p", "mdi:piggy-bank"),
         ]
 
         # Schedule sensors need json_attributes_topic (payload exceeds 255-char state limit)
