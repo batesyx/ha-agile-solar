@@ -11,18 +11,12 @@ Runs independently from Home Assistant. HA remains the control/orchestration lay
 
 ## System Setup
 
-Designed for a real home with:
+Designed for UK homes with:
 
-- **Tariff:** Intelligent Octopus Go (import) + Agile Outgoing (export)
-- **Inverter:** Fox ESS KH10.5
-- **Battery:** 11.52 kWh
-- **Solar array:** 11.96 kWp total across four orientations:
-  - 7.14 kWp North
-  - 3.06 kWp South
-  - 0.88 kWp East
-  - 0.88 kWp West
-
-The multi-orientation array means generation spans a longer portion of the day than a south-only system. The optimizer's decision logic accounts for this.
+- **Tariff:** Octopus Agile Outgoing (export) + any import tariff
+- **Inverter:** Fox ESS (any model with HA integration)
+- **Battery:** Any capacity (configurable)
+- **Solar array:** Supports multi-orientation arrays — the optimizer accounts for extended generation profiles
 
 ## Architecture
 
