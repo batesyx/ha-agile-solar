@@ -100,7 +100,7 @@ class InverterControlSettings(BaseModel):
     """Inverter control parameters."""
 
     enabled: bool = False
-    min_command_interval_seconds: int = 300
+    min_command_interval_seconds: int = 30
     cheap_rate_start_hour: float = 23.5  # 23:30
     cheap_rate_end_hour: float = 5.5  # 05:30
     high_export_threshold_for_full_charge: float = 20.0  # p/kWh

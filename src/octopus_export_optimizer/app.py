@@ -199,6 +199,22 @@ class Application:
             seconds=sched.recommendation_seconds,
             id="recommendation",
         )
+        # Slot-boundary triggers: pre-position inverter before slot change,
+        # confirm after. Agile slots change at :00 and :30.
+        self.scheduler.add_job(
+            lambda: self._run_safe("recommendation", self.job_generate_recommendation),
+            "cron",
+            minute="29,59",
+            second=50,
+            id="recommendation_pre_slot",
+        )
+        self.scheduler.add_job(
+            lambda: self._run_safe("recommendation", self.job_generate_recommendation),
+            "cron",
+            minute="0,30",
+            second=5,
+            id="recommendation_post_slot",
+        )
         self.scheduler.add_job(
             lambda: self._run_safe("aggregate", self.job_aggregate_summaries),
             "interval",
