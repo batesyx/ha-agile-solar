@@ -451,10 +451,17 @@ class Application:
         upcoming_end = now + timedelta(hours=48)
         upcoming_export = self.tariff_repo.get_export_rates(now, upcoming_end)
         upcoming_import = self.tariff_repo.get_import_rates(now, upcoming_end)
+        planned_starts: set[str] | None = None
+        if self._current_export_plan:
+            planned_starts = {
+                s.interval_start.isoformat()
+                for s in self._current_export_plan.planned_slots
+            }
         self.mqtt_publisher.publish_upcoming_rate_schedule(
             upcoming_export,
             upcoming_import if upcoming_import else None,
             now,
+            planned_starts=planned_starts,
         )
 
         rec = self.recommendation_repo.get_latest()

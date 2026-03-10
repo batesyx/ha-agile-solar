@@ -37,3 +37,34 @@ class TestRecommendationPayloads:
     def test_none_recommendation(self):
         assert PayloadBuilder.recommendation_state_payload(None) == "UNKNOWN"
         assert "No recommendation" in PayloadBuilder.recommendation_explanation_payload(None)
+
+
+class TestRateSchedulePayload:
+    def test_empty_slots(self):
+        payload = json.loads(PayloadBuilder.rate_schedule_payload([]))
+        assert payload == {"rates": [], "count": 0}
+
+    def test_planned_flag_marks_targeted_slots(self):
+        s1 = make_tariff_slot(rate_pence=20.0)
+        s2 = make_tariff_slot(
+            interval_start=datetime(2026, 3, 9, 12, 30, tzinfo=timezone.utc),
+            rate_pence=25.0,
+        )
+        planned = {s1.interval_start.isoformat()}
+        payload = json.loads(
+            PayloadBuilder.rate_schedule_payload([s1, s2], planned_starts=planned)
+        )
+        assert payload["rates"][0]["planned"] is True
+        assert payload["rates"][1]["planned"] is False
+
+    def test_no_planned_starts_all_false(self):
+        s1 = make_tariff_slot(rate_pence=20.0)
+        payload = json.loads(PayloadBuilder.rate_schedule_payload([s1]))
+        assert payload["rates"][0]["planned"] is False
+
+    def test_planned_starts_none_all_false(self):
+        s1 = make_tariff_slot(rate_pence=20.0)
+        payload = json.loads(
+            PayloadBuilder.rate_schedule_payload([s1], planned_starts=None)
+        )
+        assert payload["rates"][0]["planned"] is False

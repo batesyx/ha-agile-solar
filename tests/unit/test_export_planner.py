@@ -264,3 +264,34 @@ class TestPlannedExportRule:
         )
         result = engine.evaluate(snapshot, export_plan=plan)
         assert result.state == RecommendationState.NORMAL_SELF_CONSUMPTION
+
+    def test_export_now_gets_discharge_kw_from_plan(self, engine):
+        """ExportNowRule fires but plan provides controlled discharge power."""
+        # Current rate >= planned slot → PlannedExportRule falls through,
+        # ExportNowRule fires. Engine should still apply plan's discharge_kw.
+        plan = _plan(exportable=5.0, slots=[_slot(2, 18)])
+        assert plan is not None
+        snapshot = make_recommendation_snapshot(
+            timestamp=NOW,
+            current_export_rate=19.0,  # better than planned 18p
+            best_upcoming_rate=18.0,
+            battery_soc_pct=70.0,
+        )
+        result = engine.evaluate(snapshot, export_plan=plan)
+        assert result.state == RecommendationState.EXPORT_NOW
+        assert result.reason_code != ReasonCode.PLANNED_EXPORT
+        # Discharge power should still be set from the plan
+        assert result.target_discharge_kw == plan.discharge_kw
+        assert result.export_plan_slots == len(plan.planned_slots)
+
+    def test_export_now_without_plan_has_no_discharge_kw(self, engine):
+        """ExportNowRule without a plan → no target_discharge_kw."""
+        snapshot = make_recommendation_snapshot(
+            timestamp=NOW,
+            current_export_rate=20.0,
+            best_upcoming_rate=18.0,
+            battery_soc_pct=70.0,
+        )
+        result = engine.evaluate(snapshot, export_plan=None)
+        assert result.state == RecommendationState.EXPORT_NOW
+        assert result.target_discharge_kw is None

@@ -26,6 +26,7 @@ from octopus_export_optimizer.models.recommendation import (
 )
 from octopus_export_optimizer.models.tariff import TariffSlot
 from octopus_export_optimizer.models.export_plan import ExportPlan
+from octopus_export_optimizer.recommendation.types import ReasonCode, RecommendationState
 from octopus_export_optimizer.recommendation.rules import (
     ChargeForLaterExportRule,
     ExportNowRule,
@@ -109,11 +110,6 @@ class RecommendationEngine:
                 break
         else:
             # Should never reach here due to fallback rule, but just in case
-            from octopus_export_optimizer.recommendation.types import (
-                ReasonCode,
-                RecommendationState,
-            )
-
             result = Recommendation(
                 timestamp=snapshot.timestamp,
                 state=RecommendationState.NORMAL_SELF_CONSUMPTION,
@@ -122,6 +118,17 @@ class RecommendationEngine:
                 battery_aware=False,
                 input_snapshot_id=snapshot.id,
             )
+
+        # Ensure controlled discharge when an export plan is active.
+        # If ExportNowRule (or another rule) fired instead of PlannedExportRule,
+        # target_discharge_kw won't be set — apply the plan's power target.
+        if (
+            export_plan is not None
+            and result.target_discharge_kw is None
+            and result.state == RecommendationState.EXPORT_NOW
+        ):
+            result.target_discharge_kw = export_plan.discharge_kw
+            result.export_plan_slots = len(export_plan.planned_slots)
 
         # Calculate target Max SoC based on upcoming export rates.
         # Only raise to 100% when the earliest high-rate slot is

@@ -101,7 +101,7 @@ class TariffRepo:
             rows = self.db.conn.execute(
                 """SELECT * FROM tariff_slots
                    WHERE tariff_type = ?
-                     AND interval_start >= ?
+                     AND interval_end > ?
                      AND interval_start < ?
                    ORDER BY interval_start""",
                 (tariff_type, start.isoformat(), end.isoformat()),

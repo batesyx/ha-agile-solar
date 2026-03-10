@@ -88,23 +88,33 @@ class PayloadBuilder:
     def rate_schedule_payload(
         slots: list[TariffSlot],
         current_time: datetime | None = None,
+        planned_starts: set[str] | None = None,
     ) -> str:
         """Build a JSON payload with today's rate schedule for charting.
 
         Publishes as a JSON object with 'rates' array and metadata,
         suitable for HA sensor attributes + ApexCharts data_generator.
+
+        If planned_starts is provided, each rate entry includes a
+        'planned' boolean indicating whether the slot is targeted
+        by the export planner.
         """
         if not slots:
             return json.dumps({"rates": [], "count": 0})
 
         rates = []
         for slot in sorted(slots, key=lambda s: s.interval_start):
-            rates.append({
+            entry: dict = {
                 "start": slot.interval_start.strftime("%H:%M"),
                 "end": slot.interval_end.strftime("%H:%M"),
                 "rate": round(slot.rate_inc_vat_pence, 2),
                 "start_iso": slot.interval_start.isoformat(),
-            })
+                "planned": (
+                    planned_starts is not None
+                    and slot.interval_start.isoformat() in planned_starts
+                ),
+            }
+            rates.append(entry)
 
         return json.dumps({
             "rates": rates,

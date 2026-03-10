@@ -245,10 +245,16 @@ class MqttPublisher:
         )
 
     def _publish_schedule(
-        self, topic_base: str, slots: list[TariffSlot], current_time: datetime | None,
+        self,
+        topic_base: str,
+        slots: list[TariffSlot],
+        current_time: datetime | None,
+        planned_starts: set[str] | None = None,
     ) -> None:
         """Publish a rate schedule: JSON to attributes topic, count to state topic."""
-        payload = self.builder.rate_schedule_payload(slots, current_time)
+        payload = self.builder.rate_schedule_payload(
+            slots, current_time, planned_starts=planned_starts,
+        )
         self._publish(f"{topic_base}", payload, retain=True)
         # Short state value for HA (avoids 255-char limit)
         parsed = json.loads(payload)
@@ -274,14 +280,17 @@ class MqttPublisher:
         export_slots: list[TariffSlot],
         import_slots: list[TariffSlot] | None = None,
         current_time: datetime | None = None,
+        planned_starts: set[str] | None = None,
     ) -> None:
         """Publish forward-looking rate schedule (now → 48h) for charting."""
         self._publish_schedule(
-            f"{self.prefix}/rates/export/upcoming_schedule", export_slots, current_time,
+            f"{self.prefix}/rates/export/upcoming_schedule",
+            export_slots, current_time, planned_starts=planned_starts,
         )
         if import_slots:
             self._publish_schedule(
-                f"{self.prefix}/rates/import/upcoming_schedule", import_slots, current_time,
+                f"{self.prefix}/rates/import/upcoming_schedule",
+                import_slots, current_time,
             )
 
     def publish_service_status(self, last_run: datetime | None) -> None:
