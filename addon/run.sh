@@ -22,6 +22,8 @@ EXPORT_THRESHOLD=$(jq -r '.export_now_threshold_pence' "$CONFIG_PATH")
 INVERTER_CONTROL=$(jq -r '.inverter_control_enabled // false' "$CONFIG_PATH")
 CHEAP_RATE_START=$(jq -r '.cheap_rate_start_hour // 23.5' "$CONFIG_PATH")
 CHEAP_RATE_END=$(jq -r '.cheap_rate_end_hour // 5.5' "$CONFIG_PATH")
+EXPORT_PLANNER=$(jq -r '.export_planner_enabled // false' "$CONFIG_PATH")
+MAX_DISCHARGE_KW=$(jq -r '.max_discharge_kw // 5.0' "$CONFIG_PATH")
 
 # HA Supervisor provides the token and URL automatically
 HA_TOKEN="${SUPERVISOR_TOKEN}"
@@ -110,6 +112,8 @@ inverter_control:
   enabled: ${INVERTER_CONTROL}
   cheap_rate_start_hour: ${CHEAP_RATE_START}
   cheap_rate_end_hour: ${CHEAP_RATE_END}
+  export_planner_enabled: ${EXPORT_PLANNER}
+  max_discharge_kw: ${MAX_DISCHARGE_KW}
 
 db_path: "/data/optimizer.db"
 log_level: "INFO"
