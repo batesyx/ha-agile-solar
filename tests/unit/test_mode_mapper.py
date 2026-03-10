@@ -23,7 +23,7 @@ def test_all_states_mapped(state: RecommendationState, expected_mode: WorkMode |
 def test_work_mode_values_match_ha_options():
     """Verify WorkMode string values match the exact HA entity options."""
     assert WorkMode.FEED_IN_FIRST.value == "Feed-in First"
-    assert WorkMode.SELF_USE.value == "Self-Use"
+    assert WorkMode.SELF_USE.value == "Self Use"
     assert WorkMode.FORCE_CHARGE.value == "Force Charge"
     assert WorkMode.BACK_UP.value == "Back-up"
     assert WorkMode.FORCE_DISCHARGE.value == "Force Discharge"

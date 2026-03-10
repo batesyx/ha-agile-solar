@@ -11,7 +11,7 @@ class WorkMode(str, Enum):
     """Fox ESS inverter work modes (must match HA select entity options exactly)."""
 
     FEED_IN_FIRST = "Feed-in First"
-    SELF_USE = "Self-Use"
+    SELF_USE = "Self Use"
     BACK_UP = "Back-up"
     FORCE_CHARGE = "Force Charge"
     FORCE_DISCHARGE = "Force Discharge"
