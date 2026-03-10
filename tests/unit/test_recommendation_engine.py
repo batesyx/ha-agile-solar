@@ -216,3 +216,55 @@ class TestMaxSocTiming:
         rates = self._make_rates(now, [1.0, 6.0])
         result = soc_engine.evaluate(snapshot, upcoming_12h_rates=rates)
         assert result.target_max_soc == 100
+
+    def test_solar_generating_rate_delta_justifies_100(self, soc_engine):
+        """Solar active, but upcoming rate well above current → 100%."""
+        now = datetime(2026, 3, 10, 9, 0, tzinfo=timezone.utc)
+        snapshot = make_recommendation_snapshot(
+            timestamp=now, pv_power_kw=3.0, current_export_rate=11.0,
+        )
+        rates = self._make_rates(now, [1.0])  # 25p, within lead time
+        result = soc_engine.evaluate(snapshot, upcoming_12h_rates=rates)
+        # 25 × sqrt(0.90) ≈ 23.7 > 11 → worth it
+        assert result.target_max_soc == 100
+
+    def test_solar_generating_marginal_delta_stays_90(self, soc_engine):
+        """Solar active, upcoming rate barely above current after losses → 90%."""
+        now = datetime(2026, 3, 10, 9, 0, tzinfo=timezone.utc)
+        snapshot = make_recommendation_snapshot(
+            timestamp=now, pv_power_kw=3.0, current_export_rate=20.0,
+        )
+        # 20p upcoming: 20 × sqrt(0.90) ≈ 18.97 < 20 → not worth it
+        rates = self._make_rates(now, [1.0], rate=20.0)
+        result = soc_engine.evaluate(snapshot, upcoming_12h_rates=rates)
+        assert result.target_max_soc == 90
+
+    def test_no_solar_always_allows_100(self, soc_engine):
+        """No solar generation → no opportunity cost → 100%."""
+        now = datetime(2026, 3, 10, 9, 0, tzinfo=timezone.utc)
+        snapshot = make_recommendation_snapshot(
+            timestamp=now, pv_power_kw=0.0, current_export_rate=20.0,
+        )
+        rates = self._make_rates(now, [1.0], rate=20.0)
+        result = soc_engine.evaluate(snapshot, upcoming_12h_rates=rates)
+        assert result.target_max_soc == 100
+
+    def test_solar_below_threshold_allows_100(self, soc_engine):
+        """Solar below 0.5 kW threshold → treated as no solar → 100%."""
+        now = datetime(2026, 3, 10, 9, 0, tzinfo=timezone.utc)
+        snapshot = make_recommendation_snapshot(
+            timestamp=now, pv_power_kw=0.3, current_export_rate=20.0,
+        )
+        rates = self._make_rates(now, [1.0], rate=20.0)
+        result = soc_engine.evaluate(snapshot, upcoming_12h_rates=rates)
+        assert result.target_max_soc == 100
+
+    def test_no_current_rate_allows_100(self, soc_engine):
+        """No current rate data → can't compare → allow 100%."""
+        now = datetime(2026, 3, 10, 9, 0, tzinfo=timezone.utc)
+        snapshot = make_recommendation_snapshot(
+            timestamp=now, pv_power_kw=3.0, current_export_rate=None,
+        )
+        rates = self._make_rates(now, [1.0])
+        result = soc_engine.evaluate(snapshot, upcoming_12h_rates=rates)
+        assert result.target_max_soc == 100

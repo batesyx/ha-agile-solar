@@ -123,6 +123,9 @@ class RecommendationEngine:
         # Only raise to 100% when the earliest high-rate slot is
         # within full_charge_lead_time_hours, to avoid sitting at
         # 100% SOC for hours (reduces battery degradation).
+        # Also checks solar opportunity cost: if solar is generating,
+        # only raise to 100% if the upcoming rate (after discharge
+        # losses) actually beats the current direct export rate.
         if upcoming_12h_rates:
             threshold = self.inverter_control.high_export_threshold_for_full_charge
             lead_time = timedelta(
@@ -135,13 +138,43 @@ class RecommendationEngine:
             if high_rate_slots:
                 earliest = min(high_rate_slots, key=lambda s: s.interval_start)
                 time_until = earliest.interval_start - snapshot.timestamp
-                result.target_max_soc = 100 if time_until <= lead_time else 90
+                if time_until <= lead_time:
+                    result.target_max_soc = self._max_soc_with_solar_check(
+                        snapshot, earliest.rate_inc_vat_pence
+                    )
+                else:
+                    result.target_max_soc = 90
             else:
                 result.target_max_soc = 90
         else:
             result.target_max_soc = 90
 
         return result
+
+    def _max_soc_with_solar_check(
+        self,
+        snapshot: RecommendationInputSnapshot,
+        upcoming_rate: float,
+    ) -> int:
+        """Decide max SoC considering solar opportunity cost.
+
+        If solar is actively generating, only raise to 100% if the
+        upcoming export rate (after discharge losses) beats the current
+        direct export rate. Otherwise the solar is better sold directly.
+        """
+        solar_generating = (
+            snapshot.pv_power_kw is not None
+            and snapshot.pv_power_kw > 0.5
+        )
+        current_rate = snapshot.current_export_rate_pence or 0.0
+
+        if solar_generating and current_rate > 0:
+            discharge_eff = self.battery.round_trip_efficiency ** 0.5
+            effective_return = upcoming_rate * discharge_eff
+            return 100 if effective_return > current_rate else 90
+
+        # No solar or no current rate → no opportunity cost
+        return 100
 
     def build_snapshot(
         self,
