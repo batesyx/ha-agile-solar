@@ -84,10 +84,12 @@ class InverterController:
         """
         # Safety: config must enable control
         if not self.settings.enabled:
+            logger.debug("Skipping control: inverter control disabled in config")
             return None
 
         # Safety: MQTT kill switch must be ON
         if not self._auto_control_enabled:
+            logger.info("Skipping control: auto control switch is OFF")
             return None
 
         # Handle insufficient data: fallback to safe mode or no-op
@@ -127,6 +129,10 @@ class InverterController:
             and target_discharge_kw != self._last_commanded_discharge_kw
         )
         if not mode_changed and not soc_changed and not discharge_kw_changed:
+            logger.debug(
+                "No change needed: mode=%s, max_soc=%s, discharge_kw=%s",
+                target_mode.value, target_max_soc, target_discharge_kw,
+            )
             return None  # Idempotent — no-op
 
         # Rate limit

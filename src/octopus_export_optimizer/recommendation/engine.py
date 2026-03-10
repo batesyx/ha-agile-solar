@@ -102,6 +102,10 @@ class RecommendationEngine:
         for rule in rules:
             result = rule.evaluate(snapshot)
             if result is not None:
+                logger.info(
+                    "Recommendation: %s (%s) — %s",
+                    result.state, result.reason_code, rule.__class__.__name__,
+                )
                 break
         else:
             # Should never reach here due to fallback rule, but just in case

@@ -340,11 +340,28 @@ class Application:
             )
 
         self._current_export_plan = export_plan
+        if export_plan:
+            logger.info(
+                "Export plan: %d slots, %.2f kWh at %.3f kW",
+                len(export_plan.planned_slots),
+                export_plan.total_planned_kwh,
+                export_plan.discharge_kw,
+            )
 
         recommendation = self.engine.evaluate(
             snapshot, upcoming_12h, export_plan=export_plan
         )
         self.recommendation_repo.save(recommendation, snapshot)
+        logger.info(
+            "Snapshot: soc=%.0f%%, export_rate=%s, pv=%.1fkW, exportable=%.2fkWh | "
+            "target_max_soc=%s, target_discharge_kw=%s",
+            snapshot.battery_soc_pct or 0,
+            snapshot.current_export_rate_pence,
+            snapshot.pv_power_kw or 0,
+            snapshot.exportable_battery_kwh or 0,
+            recommendation.target_max_soc,
+            recommendation.target_discharge_kw,
+        )
 
         # Execute inverter control
         if self.inverter_controller:
