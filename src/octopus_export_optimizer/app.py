@@ -13,6 +13,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from octopus_export_optimizer.calculations.aggregator import Aggregator
 from octopus_export_optimizer.calculations.revenue_calculator import RevenueCalculator
 from octopus_export_optimizer.calculations.export_planner import build_export_plan
+from octopus_export_optimizer.models.export_plan import ExportPlan
 from octopus_export_optimizer.calculations.revenue_estimator import estimate_revenue
 from octopus_export_optimizer.calculations.solar_profile import SolarProfile
 from octopus_export_optimizer.config.settings import AppSettings
@@ -79,6 +80,7 @@ class Application:
 
         # Publishing
         self.mqtt_publisher: MqttPublisher | None = None
+        self._current_export_plan: ExportPlan | None = None
 
         # Scheduler
         self.scheduler = BackgroundScheduler()
@@ -337,6 +339,8 @@ class Application:
                 round_trip_efficiency=self.settings.battery.round_trip_efficiency,
             )
 
+        self._current_export_plan = export_plan
+
         recommendation = self.engine.evaluate(
             snapshot, upcoming_12h, export_plan=export_plan
         )
@@ -438,6 +442,7 @@ class Application:
 
         rec = self.recommendation_repo.get_latest()
         self.mqtt_publisher.publish_recommendation(rec)
+        self.mqtt_publisher.publish_export_plan(rec, self._current_export_plan, now)
 
         today_summary = self.revenue_repo.get_summary("day", today.isoformat())
         month_key = f"{today.year}-{today.month:02d}"

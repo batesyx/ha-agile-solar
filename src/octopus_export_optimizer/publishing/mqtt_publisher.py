@@ -16,6 +16,7 @@ from typing import Callable
 
 from octopus_export_optimizer.config.settings import MqttSettings
 from octopus_export_optimizer.models.ha_state import HaStateSnapshot
+from octopus_export_optimizer.models.export_plan import ExportPlan
 from octopus_export_optimizer.models.recommendation import Recommendation
 from octopus_export_optimizer.models.revenue import RevenueSummary
 from octopus_export_optimizer.models.tariff import TariffSlot
@@ -142,6 +143,34 @@ class MqttPublisher:
         self._publish(
             f"{self.prefix}/plan/slots_planned",
             str(rec.export_plan_slots or 0) if rec else "0",
+            retain=True,
+        )
+
+    def publish_export_plan(
+        self,
+        rec: Recommendation | None,
+        plan: ExportPlan | None,
+        now: datetime,
+    ) -> None:
+        """Publish battery plan detail sensors."""
+        # Target max SoC from recommendation
+        target_soc = (
+            str(rec.target_max_soc)
+            if rec and rec.target_max_soc is not None
+            else ""
+        )
+        self._publish(f"{self.prefix}/control/target_max_soc", target_soc, retain=True)
+
+        # Next planned discharge slot
+        next_slot = plan.get_next_slot(now) if plan else None
+        self._publish(
+            f"{self.prefix}/plan/next_slot_time",
+            next_slot.interval_start.isoformat() if next_slot else "",
+            retain=True,
+        )
+        self._publish(
+            f"{self.prefix}/plan/next_slot_rate",
+            f"{next_slot.rate_pence:.1f}" if next_slot else "",
             retain=True,
         )
 
@@ -431,6 +460,9 @@ class MqttPublisher:
             ("plan_discharge_kw", "plan/discharge_kw", "Plan Discharge Power", "kW", "mdi:lightning-bolt-circle"),
             ("plan_status", "plan/status", "Export Plan Status", None, "mdi:calendar-clock"),
             ("plan_slots_planned", "plan/slots_planned", "Plan Slots Scheduled", None, "mdi:calendar-multiple"),
+            ("target_max_soc", "control/target_max_soc", "Target Max SoC", "%", "mdi:battery-charging-high"),
+            ("plan_next_slot_time", "plan/next_slot_time", "Next Planned Slot", None, "mdi:clock-start"),
+            ("plan_next_slot_rate", "plan/next_slot_rate", "Next Planned Slot Rate", "p/kWh", "mdi:cash-clock"),
         ]
 
         # Schedule sensors need json_attributes_topic (payload exceeds 255-char state limit)
@@ -451,6 +483,8 @@ class MqttPublisher:
             }
             if unit:
                 config["unit_of_measurement"] = unit
+            if object_id == "plan_next_slot_time":
+                config["device_class"] = "timestamp"
             topic = (
                 f"{self.discovery_prefix}/sensor"
                 f"/octopus_export_optimizer/{object_id}/config"
