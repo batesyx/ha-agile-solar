@@ -135,6 +135,34 @@ class MqttPublisher:
             retain=True,
         )
 
+    def publish_rolling_revenue(
+        self,
+        rolling_7d: RevenueSummary | None,
+        rolling_30d: RevenueSummary | None,
+    ) -> None:
+        """Publish rolling 7-day and 30-day revenue summaries."""
+        for period, summary in [("7d", rolling_7d), ("30d", rolling_30d)]:
+            payloads = self.builder.revenue_payload(summary)
+            for key, value in payloads.items():
+                self._publish(
+                    f"{self.prefix}/revenue/{period}/{key}",
+                    value,
+                    retain=True,
+                )
+            # Also publish average rate
+            if summary and summary.total_export_kwh > 0:
+                self._publish(
+                    f"{self.prefix}/revenue/{period}/avg_rate",
+                    f"{summary.avg_realised_rate_pence:.1f}",
+                    retain=True,
+                )
+            else:
+                self._publish(
+                    f"{self.prefix}/revenue/{period}/avg_rate",
+                    "0.0",
+                    retain=True,
+                )
+
     def publish_ha_state(self, snapshot: HaStateSnapshot | None) -> None:
         """Publish current HA state values."""
         if snapshot is None:
@@ -287,6 +315,14 @@ class MqttPublisher:
             ("month_flat_revenue", "revenue/month/flat_pence", "Month Flat Baseline Revenue", "p", "mdi:cash-minus"),
             ("month_uplift", "revenue/month/uplift_pence", "Month Uplift vs Flat", "p", "mdi:cash-plus"),
             ("month_export_kwh", "revenue/month/export_kwh", "Month Exported", "kWh", "mdi:lightning-bolt"),
+            ("7d_actual_revenue", "revenue/7d/actual_pence", "7-Day Export Revenue", "p", "mdi:cash"),
+            ("7d_uplift", "revenue/7d/uplift_pence", "7-Day Uplift vs Flat", "p", "mdi:cash-plus"),
+            ("7d_export_kwh", "revenue/7d/export_kwh", "7-Day Exported", "kWh", "mdi:lightning-bolt"),
+            ("7d_avg_rate", "revenue/7d/avg_rate", "7-Day Avg Rate", "p/kWh", "mdi:chart-line"),
+            ("30d_actual_revenue", "revenue/30d/actual_pence", "30-Day Export Revenue", "p", "mdi:cash"),
+            ("30d_uplift", "revenue/30d/uplift_pence", "30-Day Uplift vs Flat", "p", "mdi:cash-plus"),
+            ("30d_export_kwh", "revenue/30d/export_kwh", "30-Day Exported", "kWh", "mdi:lightning-bolt"),
+            ("30d_avg_rate", "revenue/30d/avg_rate", "30-Day Avg Rate", "p/kWh", "mdi:chart-line"),
             ("battery_soc", "battery/soc", "Optimizer Battery SoC", "%", "mdi:battery"),
             ("pv_power", "solar/pv_power", "Optimizer PV Power", "kW", "mdi:solar-power"),
             ("feed_in", "solar/feed_in", "Optimizer Feed-in", "kW", "mdi:transmission-tower-export"),

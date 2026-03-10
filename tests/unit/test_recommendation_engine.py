@@ -63,14 +63,27 @@ class TestExportNow:
 
 
 class TestHoldBattery:
-    def test_better_slot_coming(self, engine):
+    def test_better_slot_coming_low_battery(self, engine):
+        """With low battery, hold for the better slot."""
+        snapshot = make_recommendation_snapshot(
+            current_export_rate=16.0,
+            best_upcoming_rate=25.0,  # 9p better, above 3p delta
+            battery_soc_pct=25.0,
+        )
+        snapshot.exportable_battery_kwh = 0.5  # Not enough for both slots
+        result = engine.evaluate(snapshot)
+        assert result.state == RecommendationState.HOLD_BATTERY
+
+    def test_better_slot_coming_high_battery_exports_anyway(self, engine):
+        """With plenty of battery, export now even though better slot exists."""
         snapshot = make_recommendation_snapshot(
             current_export_rate=16.0,
             best_upcoming_rate=25.0,  # 9p better, above 3p delta
             battery_soc_pct=80.0,
         )
+        snapshot.exportable_battery_kwh = 6.9  # (0.80 - 0.20) * 11.52
         result = engine.evaluate(snapshot)
-        assert result.state == RecommendationState.HOLD_BATTERY
+        assert result.state == RecommendationState.EXPORT_NOW
 
     def test_marginally_better_slot_not_held(self, engine):
         snapshot = make_recommendation_snapshot(

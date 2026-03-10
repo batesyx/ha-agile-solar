@@ -57,13 +57,43 @@ class TestExportNowRule:
         result = rule.evaluate(snapshot)
         assert result is None
 
-    def test_skips_when_better_slot_ahead(self, thresholds, battery):
+    def test_skips_when_better_slot_ahead_and_low_battery(self, thresholds, battery):
+        """With low battery, hold for the better slot instead of exporting."""
         rule = ExportNowRule(thresholds, battery)
         snapshot = make_recommendation_snapshot(
-            current_export_rate=16.0, best_upcoming_rate=25.0
+            current_export_rate=16.0, best_upcoming_rate=25.0,
+            battery_soc_pct=25.0,
         )
+        snapshot.exportable_battery_kwh = 0.5  # Below 15% of 11.52 = 1.73 kWh
         result = rule.evaluate(snapshot)
         assert result is None
+
+    def test_exports_at_strong_rate_with_sufficient_battery_despite_better_slot(
+        self, thresholds, battery
+    ):
+        """Scenario A: 22p rate, 28p coming, but 92% SoC — export at both."""
+        rule = ExportNowRule(thresholds, battery)
+        snapshot = make_recommendation_snapshot(
+            current_export_rate=22.0, best_upcoming_rate=28.0,
+            battery_soc_pct=92.0,
+        )
+        snapshot.exportable_battery_kwh = 8.3  # (0.92 - 0.20) * 11.52
+        result = rule.evaluate(snapshot)
+        assert result is not None
+        assert result.state == RecommendationState.EXPORT_NOW
+        assert result.reason_code == ReasonCode.HIGH_RATE_WITH_BATTERY
+        assert "enough capacity for both" in result.explanation
+
+    def test_holds_for_better_slot_when_battery_low(self, thresholds, battery):
+        """Strong rate but battery can only serve one slot — hold for the best."""
+        rule = ExportNowRule(thresholds, battery)
+        snapshot = make_recommendation_snapshot(
+            current_export_rate=22.0, best_upcoming_rate=28.0,
+            battery_soc_pct=25.0,
+        )
+        snapshot.exportable_battery_kwh = 0.58  # (0.25 - 0.20) * 11.52
+        result = rule.evaluate(snapshot)
+        assert result is None  # Defers to HoldBatteryRule
 
     def test_low_soc_with_solar_feedin(self, thresholds, battery):
         rule = ExportNowRule(thresholds, battery)

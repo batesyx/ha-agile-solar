@@ -26,6 +26,8 @@ from octopus_export_optimizer.ingestion.octopus_client import OctopusClient
 from octopus_export_optimizer.ingestion.tariff_ingester import TariffIngester
 from octopus_export_optimizer.publishing.mqtt_publisher import MqttPublisher
 from octopus_export_optimizer.recommendation.engine import RecommendationEngine
+from octopus_export_optimizer.api.server import start_api_server
+from octopus_export_optimizer.storage.backup import create_backup
 from octopus_export_optimizer.storage.command_repo import CommandRepo
 from octopus_export_optimizer.storage.database import Database
 from octopus_export_optimizer.storage.ha_state_repo import HaStateRepo
@@ -97,6 +99,11 @@ class Application:
         self._run_safe("initial_calculate", self.job_calculate_revenue)
         self._run_safe("initial_recommend", self.job_generate_recommendation)
         self._run_safe("initial_publish", self.job_publish_to_ha)
+
+        # Start export API server
+        self._api_server = start_api_server(
+            self.db, self.settings.db_path, self.settings.api_port,
+        )
 
         # Handle shutdown signals
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -201,6 +208,13 @@ class Application:
             seconds=sched.publish_seconds,
             id="publish",
         )
+        self.scheduler.add_job(
+            lambda: self._run_safe("backup", self.job_backup_database),
+            "cron",
+            hour=2,
+            minute=0,
+            id="backup",
+        )
 
     # ── Scheduled Jobs ──────────────────────────────────────────
 
@@ -285,6 +299,14 @@ class Application:
                 "inverter_control",
                 lambda: self.inverter_controller.execute(recommendation),
             )
+
+    def job_backup_database(self) -> None:
+        """Create a backup of the SQLite database."""
+        create_backup(
+            self.settings.db_path,
+            self.settings.backup_dir,
+            self.settings.backup_retention_days,
+        )
 
     def job_aggregate_summaries(self) -> None:
         """Aggregate revenue into day/month summaries."""
@@ -397,6 +419,11 @@ class Application:
             today_summary, month_summary, today_is_estimated=today_is_estimated,
         )
 
+        # Publish rolling summaries
+        rolling_7d = self.revenue_repo.get_summary("rolling_7d", "last_7d")
+        rolling_30d = self.revenue_repo.get_summary("rolling_30d", "last_30d")
+        self.mqtt_publisher.publish_rolling_revenue(rolling_7d, rolling_30d)
+
         ha_state = self.ha_state_repo.get_latest()
         self.mqtt_publisher.publish_ha_state(ha_state)
 
@@ -454,6 +481,8 @@ class Application:
         """Clean up resources."""
         logger.info("Shutting down...")
         self.scheduler.shutdown(wait=False)
+        if hasattr(self, "_api_server"):
+            self._api_server.shutdown()
         if self.mqtt_publisher:
             self.mqtt_publisher.disconnect()
         if self.inverter_controller:

@@ -192,7 +192,27 @@ class ExportNowRule(Rule):
         if snapshot.best_upcoming_rate_pence is not None:
             delta = snapshot.best_upcoming_rate_pence - rate
             if delta > self.thresholds.better_slot_delta_pence:
-                return None  # Let HoldBatteryRule handle this
+                # Better slot exists — but if we're already above threshold
+                # and battery has enough capacity for both slots, export now.
+                if (
+                    snapshot.battery_soc_pct is not None
+                    and snapshot.exportable_battery_kwh is not None
+                    and snapshot.exportable_battery_kwh
+                    > self.battery.capacity_kwh * 0.15
+                ):
+                    soc = self._normalize_soc(snapshot.battery_soc_pct)
+                    exportable = snapshot.exportable_battery_kwh
+                    return self._make_recommendation(
+                        snapshot,
+                        RecommendationState.EXPORT_NOW,
+                        ReasonCode.HIGH_RATE_WITH_BATTERY,
+                        f"Export rate is {rate:.1f}p/kWh (above {threshold:.1f}p threshold). "
+                        f"Better slot at {snapshot.best_upcoming_rate_pence:.1f}p/kWh coming, "
+                        f"but battery at {soc:.0%} with ~{exportable:.1f}kWh "
+                        f"has enough capacity for both.",
+                        battery_aware=True,
+                    )
+                return None  # Low battery — hold for the better slot
 
         # Check battery state if available
         battery_aware = snapshot.battery_soc_pct is not None

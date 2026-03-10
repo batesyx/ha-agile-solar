@@ -174,6 +174,9 @@ class AppSettings(BaseSettings):
     inverter_control: InverterControlSettings = InverterControlSettings()
     schedule: ScheduleSettings = ScheduleSettings()
     db_path: str = "data/optimizer.db"
+    backup_dir: str = "/share/octopus_optimizer_backups"
+    backup_retention_days: int = 7
+    api_port: int = 8099
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
     @classmethod

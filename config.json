@@ -1,6 +1,6 @@
 {
   "name": "Octopus Export Optimizer",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "init": false,
   "slug": "octopus_export_optimizer",
   "description": "Optimizes electricity export on Octopus Agile/Variable tariffs with FoxESS inverter",
@@ -12,6 +12,12 @@
   "hassio_api": true,
   "homeassistant_api": true,
   "services": ["mqtt:want"],
+  "ports": {
+    "8099/tcp": 8099
+  },
+  "ports_description": {
+    "8099/tcp": "Data export API"
+  },
   "map": ["share:rw"],
   "options": {
     "octopus_api_key": "",
