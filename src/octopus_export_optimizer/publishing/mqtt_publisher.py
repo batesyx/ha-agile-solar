@@ -183,6 +183,16 @@ class MqttPublisher:
             retain=True,
         )
 
+    def _publish_schedule(
+        self, topic_base: str, slots: list[TariffSlot], current_time: datetime | None,
+    ) -> None:
+        """Publish a rate schedule: JSON to attributes topic, count to state topic."""
+        payload = self.builder.rate_schedule_payload(slots, current_time)
+        self._publish(f"{topic_base}", payload, retain=True)
+        # Short state value for HA (avoids 255-char limit)
+        parsed = json.loads(payload)
+        self._publish(f"{topic_base}/state", str(parsed.get("count", 0)), retain=True)
+
     def publish_rate_schedule(
         self,
         export_slots: list[TariffSlot],
@@ -190,16 +200,12 @@ class MqttPublisher:
         current_time: datetime | None = None,
     ) -> None:
         """Publish today's full rate schedule for charting."""
-        self._publish(
-            f"{self.prefix}/rates/export/schedule",
-            self.builder.rate_schedule_payload(export_slots, current_time),
-            retain=True,
+        self._publish_schedule(
+            f"{self.prefix}/rates/export/schedule", export_slots, current_time,
         )
         if import_slots:
-            self._publish(
-                f"{self.prefix}/rates/import/schedule",
-                self.builder.rate_schedule_payload(import_slots, current_time),
-                retain=True,
+            self._publish_schedule(
+                f"{self.prefix}/rates/import/schedule", import_slots, current_time,
             )
 
     def publish_upcoming_rate_schedule(
@@ -209,16 +215,12 @@ class MqttPublisher:
         current_time: datetime | None = None,
     ) -> None:
         """Publish forward-looking rate schedule (now → 48h) for charting."""
-        self._publish(
-            f"{self.prefix}/rates/export/upcoming_schedule",
-            self.builder.rate_schedule_payload(export_slots, current_time),
-            retain=True,
+        self._publish_schedule(
+            f"{self.prefix}/rates/export/upcoming_schedule", export_slots, current_time,
         )
         if import_slots:
-            self._publish(
-                f"{self.prefix}/rates/import/upcoming_schedule",
-                self.builder.rate_schedule_payload(import_slots, current_time),
-                retain=True,
+            self._publish_schedule(
+                f"{self.prefix}/rates/import/upcoming_schedule", import_slots, current_time,
             )
 
     def publish_service_status(self, last_run: datetime | None) -> None:
@@ -346,11 +348,15 @@ class MqttPublisher:
             ("pv_power", "solar/pv_power", "Optimizer PV Power", "kW", "mdi:solar-power"),
             ("feed_in", "solar/feed_in", "Optimizer Feed-in", "kW", "mdi:transmission-tower-export"),
             ("last_run", "service/last_run", "Optimizer Last Run", None, "mdi:clock-outline"),
-            ("export_rate_schedule", "rates/export/schedule", "Export Rate Schedule", None, "mdi:chart-bar"),
             ("import_rate", "rates/import/current", "Import Rate", "p/kWh", "mdi:currency-gbp"),
-            ("import_rate_schedule", "rates/import/schedule", "Import Rate Schedule", None, "mdi:chart-bar"),
-            ("upcoming_export_schedule", "rates/export/upcoming_schedule", "Upcoming Export Rates", None, "mdi:chart-timeline-variant"),
-            ("upcoming_import_schedule", "rates/import/upcoming_schedule", "Upcoming Import Rates", None, "mdi:chart-timeline-variant"),
+        ]
+
+        # Schedule sensors need json_attributes_topic (payload exceeds 255-char state limit)
+        schedule_sensors = [
+            ("export_rate_schedule", "rates/export/schedule", "Export Rate Schedule", "mdi:chart-bar"),
+            ("import_rate_schedule", "rates/import/schedule", "Import Rate Schedule", "mdi:chart-bar"),
+            ("upcoming_export_schedule", "rates/export/upcoming_schedule", "Upcoming Export Rates", "mdi:chart-timeline-variant"),
+            ("upcoming_import_schedule", "rates/import/upcoming_schedule", "Upcoming Import Rates", "mdi:chart-timeline-variant"),
         ]
 
         for object_id, state_suffix, name, unit, icon in sensors:
@@ -363,6 +369,21 @@ class MqttPublisher:
             }
             if unit:
                 config["unit_of_measurement"] = unit
+            topic = (
+                f"{self.discovery_prefix}/sensor"
+                f"/octopus_export_optimizer/{object_id}/config"
+            )
+            self._publish(topic, json.dumps(config), retain=True)
+
+        for object_id, state_suffix, name, icon in schedule_sensors:
+            config = {
+                "name": name,
+                "state_topic": f"{self.prefix}/{state_suffix}/state",
+                "json_attributes_topic": f"{self.prefix}/{state_suffix}",
+                "unique_id": f"octopus_export_optimizer_{object_id}",
+                "device": DEVICE_INFO,
+                "icon": icon,
+            }
             topic = (
                 f"{self.discovery_prefix}/sensor"
                 f"/octopus_export_optimizer/{object_id}/config"
