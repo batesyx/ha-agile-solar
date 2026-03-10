@@ -109,6 +109,48 @@ class TestExportNowRule:
         assert result is not None
         assert result.reason_code == ReasonCode.HIGH_RATE_SOLAR_EXPORT
 
+    def test_rate_exactly_at_threshold_fires(self, thresholds, battery):
+        """Rate == threshold (15.0p) fires because check is < not <=."""
+        rule = ExportNowRule(thresholds, battery)
+        snapshot = make_recommendation_snapshot(
+            current_export_rate=15.0, best_upcoming_rate=14.0,
+        )
+        result = rule.evaluate(snapshot)
+        assert result is not None
+        assert result.state == RecommendationState.EXPORT_NOW
+
+    def test_negative_rate_does_not_fire(self, thresholds, battery):
+        """Negative export rate — should not export."""
+        rule = ExportNowRule(thresholds, battery)
+        snapshot = make_recommendation_snapshot(
+            current_export_rate=-2.0, best_upcoming_rate=-0.5,
+        )
+        result = rule.evaluate(snapshot)
+        assert result is None
+
+    def test_soc_exactly_at_minimum_for_export(self, thresholds, battery):
+        """SoC at 35% (minimum_soc_for_export=0.35) — should still export (uses <)."""
+        rule = ExportNowRule(thresholds, battery)
+        snapshot = make_recommendation_snapshot(
+            current_export_rate=20.0, best_upcoming_rate=18.0,
+            battery_soc_pct=35.0,
+        )
+        result = rule.evaluate(snapshot)
+        assert result is not None
+        assert result.state == RecommendationState.EXPORT_NOW
+
+    def test_exportable_exactly_at_capacity_boundary(self, thresholds, battery):
+        """Exportable at exactly 15% of capacity (1.728) — fires (uses >)."""
+        rule = ExportNowRule(thresholds, battery)
+        snapshot = make_recommendation_snapshot(
+            current_export_rate=20.0, best_upcoming_rate=28.0,
+            battery_soc_pct=40.0,
+        )
+        # 15% of 11.52 = 1.728 — exactly at boundary, should NOT fire (> not >=)
+        snapshot.exportable_battery_kwh = 1.728
+        result = rule.evaluate(snapshot)
+        assert result is None  # Not > 1.728, so holds for better slot
+
 
 class TestHoldBatteryRule:
     def test_fires_when_better_slot_coming(self, thresholds, battery):
@@ -142,6 +184,53 @@ class TestHoldBatteryRule:
         result = rule.evaluate(snapshot)
         assert "generation" in result.explanation.lower()
 
+    def test_delta_exactly_at_threshold_does_not_fire(self, thresholds, battery):
+        """Delta == better_slot_delta_pence (3.0p) — does NOT fire (uses <=)."""
+        rule = HoldBatteryRule(thresholds, battery)
+        snapshot = make_recommendation_snapshot(
+            current_export_rate=17.0,
+            best_upcoming_rate=20.0,  # delta = 3.0
+            battery_soc_pct=80.0,
+        )
+        result = rule.evaluate(snapshot)
+        assert result is None
+
+    def test_soc_at_reserve_floor_still_holds(self, thresholds, battery):
+        """SoC at reserve floor (20%) — still holds (0.20 is not < 0.20)."""
+        rule = HoldBatteryRule(thresholds, battery)
+        snapshot = make_recommendation_snapshot(
+            current_export_rate=16.0,
+            best_upcoming_rate=25.0,
+            battery_soc_pct=20.0,
+        )
+        result = rule.evaluate(snapshot)
+        assert result is not None
+        assert result.state == RecommendationState.HOLD_BATTERY
+
+    def test_soc_below_reserve_floor_does_not_fire(self, thresholds, battery):
+        """SoC below reserve floor (19%) — nothing to hold."""
+        rule = HoldBatteryRule(thresholds, battery)
+        snapshot = make_recommendation_snapshot(
+            current_export_rate=16.0,
+            best_upcoming_rate=25.0,
+            battery_soc_pct=19.0,
+        )
+        result = rule.evaluate(snapshot)
+        assert result is None
+
+    def test_no_battery_data_tariff_only_hold(self, thresholds, battery):
+        """No battery SoC — produces tariff-only hold recommendation."""
+        rule = HoldBatteryRule(thresholds, battery)
+        snapshot = make_recommendation_snapshot(
+            current_export_rate=16.0,
+            best_upcoming_rate=25.0,
+            battery_soc_pct=None,
+        )
+        result = rule.evaluate(snapshot)
+        assert result is not None
+        assert result.state == RecommendationState.HOLD_BATTERY
+        assert result.reason_code == ReasonCode.BETTER_SLOT_COMING
+
 
 class TestChargeForLaterExportRule:
     def test_skips_when_arbitrage_disabled(self, thresholds, battery):
@@ -161,6 +250,43 @@ class TestChargeForLaterExportRule:
         result = rule.evaluate(snapshot)
         assert result is not None
         assert result.state == RecommendationState.CHARGE_FOR_LATER_EXPORT
+
+    def test_none_import_rate_returns_none(self, thresholds_arb, battery):
+        rule = ChargeForLaterExportRule(thresholds_arb, battery)
+        snapshot = make_recommendation_snapshot(
+            best_upcoming_rate=30.0, battery_soc_pct=40.0,
+        )
+        snapshot.current_import_rate_pence = None
+        result = rule.evaluate(snapshot)
+        assert result is None
+
+    def test_none_battery_soc_returns_none(self, thresholds_arb, battery):
+        rule = ChargeForLaterExportRule(thresholds_arb, battery)
+        snapshot = make_recommendation_snapshot(
+            best_upcoming_rate=30.0, battery_soc_pct=None,
+        )
+        snapshot.current_import_rate_pence = 5.0
+        result = rule.evaluate(snapshot)
+        assert result is None
+
+    def test_none_upcoming_rate_returns_none(self, thresholds_arb, battery):
+        rule = ChargeForLaterExportRule(thresholds_arb, battery)
+        snapshot = make_recommendation_snapshot(
+            best_upcoming_rate=None, battery_soc_pct=40.0,
+        )
+        snapshot.current_import_rate_pence = 5.0
+        result = rule.evaluate(snapshot)
+        assert result is None
+
+    def test_soc_at_95_does_not_fire(self, thresholds_arb, battery):
+        """SoC at 95% — no headroom, should NOT fire (uses < 0.95)."""
+        rule = ChargeForLaterExportRule(thresholds_arb, battery)
+        snapshot = make_recommendation_snapshot(
+            best_upcoming_rate=30.0, battery_soc_pct=95.0,
+        )
+        snapshot.current_import_rate_pence = 5.0
+        result = rule.evaluate(snapshot)
+        assert result is None
 
 
 class TestNormalSelfConsumptionRule:

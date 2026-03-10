@@ -35,8 +35,8 @@ class Rule:
 
     @staticmethod
     def _normalize_soc(soc_pct: float) -> float:
-        """Normalize SoC to 0.0-1.0 range whether input is percentage or fraction."""
-        return soc_pct / 100.0 if soc_pct > 1.0 else soc_pct
+        """Normalize SoC percentage (0-100) to fraction (0.0-1.0)."""
+        return soc_pct / 100.0
 
     def _make_recommendation(
         self,

@@ -101,6 +101,8 @@ class InverterController:
             return None
 
         target_max_soc = recommendation.target_max_soc
+        if target_max_soc is not None:
+            target_max_soc = max(10, min(100, target_max_soc))
 
         # Check if anything actually needs to change
         mode_changed = target_mode != self._last_commanded_mode

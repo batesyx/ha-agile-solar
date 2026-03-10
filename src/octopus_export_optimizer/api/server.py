@@ -52,22 +52,36 @@ class ExportHandler(BaseHTTPRequestHandler):
         else:
             self._send_json(404, {"error": "Not found", "endpoints": list(routes.keys())})
 
-    def _parse_dates(self, params: dict) -> tuple[str, str]:
+    def _parse_dates(self, params: dict) -> tuple[str, str] | None:
+        """Parse and validate date range from query params.
+
+        Returns (from_date, to_date) strings, or None if invalid.
+        """
         today = datetime.now(timezone.utc).date().isoformat()
         from_date = params.get("from", [f"{today}T00:00:00+00:00"])[0]
         to_date = params.get("to", [f"{today}T23:59:59+00:00"])[0]
+        try:
+            datetime.fromisoformat(from_date)
+            datetime.fromisoformat(to_date)
+        except (ValueError, TypeError):
+            return None
         return from_date, to_date
 
     def _export_tariffs(self, params: dict) -> None:
-        from_date, to_date = self._parse_dates(params)
-        rows = self.db.conn.execute(
-            """SELECT interval_start, interval_end, rate_inc_vat_pence,
-                      tariff_type, product_code, provenance
-               FROM tariff_slots
-               WHERE interval_start >= ? AND interval_start <= ?
-               ORDER BY interval_start""",
-            (from_date, to_date),
-        ).fetchall()
+        dates = self._parse_dates(params)
+        if dates is None:
+            self._send_json(400, {"error": "Invalid date format. Use ISO 8601."})
+            return
+        from_date, to_date = dates
+        with self.db.lock:
+            rows = self.db.conn.execute(
+                """SELECT interval_start, interval_end, rate_inc_vat_pence,
+                          tariff_type, product_code, provenance
+                   FROM tariff_slots
+                   WHERE interval_start >= ? AND interval_start <= ?
+                   ORDER BY interval_start""",
+                (from_date, to_date),
+            ).fetchall()
 
         fmt = params.get("format", ["csv"])[0]
         columns = ["interval_start", "interval_end", "rate_inc_vat_pence",
@@ -75,16 +89,21 @@ class ExportHandler(BaseHTTPRequestHandler):
         self._send_table(rows, columns, fmt, "tariffs")
 
     def _export_revenue(self, params: dict) -> None:
-        from_date, to_date = self._parse_dates(params)
-        rows = self.db.conn.execute(
-            """SELECT interval_start, export_kwh, agile_rate_pence,
-                      agile_revenue_pence, flat_rate_pence, flat_revenue_pence,
-                      uplift_pence
-               FROM revenue_intervals
-               WHERE interval_start >= ? AND interval_start <= ?
-               ORDER BY interval_start""",
-            (from_date, to_date),
-        ).fetchall()
+        dates = self._parse_dates(params)
+        if dates is None:
+            self._send_json(400, {"error": "Invalid date format. Use ISO 8601."})
+            return
+        from_date, to_date = dates
+        with self.db.lock:
+            rows = self.db.conn.execute(
+                """SELECT interval_start, export_kwh, agile_rate_pence,
+                          agile_revenue_pence, flat_rate_pence, flat_revenue_pence,
+                          uplift_pence
+                   FROM revenue_intervals
+                   WHERE interval_start >= ? AND interval_start <= ?
+                   ORDER BY interval_start""",
+                (from_date, to_date),
+            ).fetchall()
 
         fmt = params.get("format", ["csv"])[0]
         columns = ["interval_start", "export_kwh", "agile_rate_pence",
@@ -93,19 +112,24 @@ class ExportHandler(BaseHTTPRequestHandler):
         self._send_table(rows, columns, fmt, "revenue")
 
     def _export_recommendations(self, params: dict) -> None:
-        from_date, to_date = self._parse_dates(params)
-        rows = self.db.conn.execute(
-            """SELECT r.timestamp, r.state, r.reason_code, r.explanation,
-                      r.battery_aware, r.target_max_soc,
-                      s.battery_soc_pct, s.current_export_rate_pence,
-                      s.best_upcoming_rate_pence, s.exportable_battery_kwh
-               FROM recommendations r
-               LEFT JOIN recommendation_input_snapshots s
-                 ON r.input_snapshot_id = s.id
-               WHERE r.timestamp >= ? AND r.timestamp <= ?
-               ORDER BY r.timestamp""",
-            (from_date, to_date),
-        ).fetchall()
+        dates = self._parse_dates(params)
+        if dates is None:
+            self._send_json(400, {"error": "Invalid date format. Use ISO 8601."})
+            return
+        from_date, to_date = dates
+        with self.db.lock:
+            rows = self.db.conn.execute(
+                """SELECT r.timestamp, r.state, r.reason_code, r.explanation,
+                          r.battery_aware, r.target_max_soc,
+                          s.battery_soc_pct, s.current_export_rate_pence,
+                          s.best_upcoming_rate_pence, s.exportable_battery_kwh
+                   FROM recommendations r
+                   LEFT JOIN recommendation_input_snapshots s
+                     ON r.input_snapshot_id = s.id
+                   WHERE r.timestamp >= ? AND r.timestamp <= ?
+                   ORDER BY r.timestamp""",
+                (from_date, to_date),
+            ).fetchall()
 
         fmt = params.get("format", ["csv"])[0]
         columns = ["timestamp", "state", "reason_code", "explanation",
@@ -115,16 +139,21 @@ class ExportHandler(BaseHTTPRequestHandler):
         self._send_table(rows, columns, fmt, "recommendations")
 
     def _export_snapshots(self, params: dict) -> None:
-        from_date, to_date = self._parse_dates(params)
-        rows = self.db.conn.execute(
-            """SELECT timestamp, battery_soc_pct, pv_power_kw, feed_in_kw,
-                      load_power_kw, grid_consumption_kw,
-                      battery_charge_kw, battery_discharge_kw
-               FROM ha_state_snapshots
-               WHERE timestamp >= ? AND timestamp <= ?
-               ORDER BY timestamp""",
-            (from_date, to_date),
-        ).fetchall()
+        dates = self._parse_dates(params)
+        if dates is None:
+            self._send_json(400, {"error": "Invalid date format. Use ISO 8601."})
+            return
+        from_date, to_date = dates
+        with self.db.lock:
+            rows = self.db.conn.execute(
+                """SELECT timestamp, battery_soc_pct, pv_power_kw, feed_in_kw,
+                          load_power_kw, grid_consumption_kw,
+                          battery_charge_kw, battery_discharge_kw
+                   FROM ha_state_snapshots
+                   WHERE timestamp >= ? AND timestamp <= ?
+                   ORDER BY timestamp""",
+                (from_date, to_date),
+            ).fetchall()
 
         fmt = params.get("format", ["csv"])[0]
         columns = ["timestamp", "battery_soc_pct", "pv_power_kw", "feed_in_kw",
@@ -133,15 +162,20 @@ class ExportHandler(BaseHTTPRequestHandler):
         self._send_table(rows, columns, fmt, "snapshots")
 
     def _export_commands(self, params: dict) -> None:
-        from_date, to_date = self._parse_dates(params)
-        rows = self.db.conn.execute(
-            """SELECT timestamp, previous_mode, new_mode, target_max_soc,
-                      recommendation_state, reason_code, success, error
-               FROM inverter_commands
-               WHERE timestamp >= ? AND timestamp <= ?
-               ORDER BY timestamp""",
-            (from_date, to_date),
-        ).fetchall()
+        dates = self._parse_dates(params)
+        if dates is None:
+            self._send_json(400, {"error": "Invalid date format. Use ISO 8601."})
+            return
+        from_date, to_date = dates
+        with self.db.lock:
+            rows = self.db.conn.execute(
+                """SELECT timestamp, previous_mode, new_mode, target_max_soc,
+                          recommendation_state, reason_code, success, error
+                   FROM inverter_commands
+                   WHERE timestamp >= ? AND timestamp <= ?
+                   ORDER BY timestamp""",
+                (from_date, to_date),
+            ).fetchall()
 
         fmt = params.get("format", ["csv"])[0]
         columns = ["timestamp", "previous_mode", "new_mode", "target_max_soc",

@@ -480,7 +480,7 @@ class Application:
     def _shutdown(self) -> None:
         """Clean up resources."""
         logger.info("Shutting down...")
-        self.scheduler.shutdown(wait=False)
+        self.scheduler.shutdown(wait=True)
         if hasattr(self, "_api_server"):
             self._api_server.shutdown()
         if self.mqtt_publisher:

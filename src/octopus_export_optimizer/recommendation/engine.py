@@ -9,7 +9,10 @@ The engine has no side effects — no database, no I/O.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
+
+logger = logging.getLogger(__name__)
 
 from octopus_export_optimizer.config.settings import (
     BatterySettings,
@@ -146,6 +149,12 @@ class RecommendationEngine:
 
         if ha_state:
             battery_soc = ha_state.battery_soc_pct
+            if battery_soc is not None and not (0 <= battery_soc <= 100):
+                logger.warning(
+                    "Battery SoC out of range: %.1f%%, treating as unavailable",
+                    battery_soc,
+                )
+                battery_soc = None
             feed_in = ha_state.feed_in_kw
             pv_power = ha_state.pv_power_kw
             load_power = ha_state.load_power_kw
@@ -153,7 +162,7 @@ class RecommendationEngine:
             bat_discharge = ha_state.battery_discharge_kw
 
             if battery_soc is not None:
-                soc_fraction = battery_soc / 100.0 if battery_soc > 1.0 else battery_soc
+                soc_fraction = battery_soc / 100.0
                 current_kwh = soc_fraction * self.battery.capacity_kwh
                 effective_floor = (
                     max(self.thresholds.reserve_soc_floor, minimum_soc_override)

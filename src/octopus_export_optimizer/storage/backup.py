@@ -40,10 +40,12 @@ def create_backup(
     try:
         source = sqlite3.connect(db_path)
         target = sqlite3.connect(str(dest))
-        source.backup(target)
-        target.close()
-        source.close()
-        logger.info("Database backup created: %s", dest)
+        try:
+            source.backup(target)
+            logger.info("Database backup created: %s", dest)
+        finally:
+            target.close()
+            source.close()
     except Exception:
         logger.exception("Failed to create database backup")
         return None
