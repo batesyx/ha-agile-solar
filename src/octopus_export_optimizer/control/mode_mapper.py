@@ -19,9 +19,9 @@ class WorkMode(str, Enum):
 
 _RECOMMENDATION_TO_MODE: dict[RecommendationState, WorkMode | None] = {
     RecommendationState.EXPORT_NOW: WorkMode.FEED_IN_FIRST,
-    RecommendationState.HOLD_BATTERY: WorkMode.SELF_USE,
+    RecommendationState.HOLD_BATTERY: WorkMode.FEED_IN_FIRST,
     RecommendationState.CHARGE_FOR_LATER_EXPORT: WorkMode.FORCE_CHARGE,
-    RecommendationState.NORMAL_SELF_CONSUMPTION: WorkMode.SELF_USE,
+    RecommendationState.NORMAL_SELF_CONSUMPTION: WorkMode.FEED_IN_FIRST,
     RecommendationState.INSUFFICIENT_DATA: None,
 }
 

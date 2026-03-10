@@ -94,10 +94,10 @@ class InverterController:
 
         # Handle insufficient data: fallback to safe mode or no-op
         if recommendation.state == RecommendationState.INSUFFICIENT_DATA:
-            if self.settings.fallback_on_insufficient_data == "self_use":
-                target_mode = WorkMode.SELF_USE
+            if self.settings.fallback_on_insufficient_data == "feed_in_first":
+                target_mode = WorkMode.FEED_IN_FIRST
                 logger.info(
-                    "Insufficient data — falling back to Self Use (safe mode)"
+                    "Insufficient data — falling back to Feed-in First (safe mode)"
                 )
             else:
                 return None

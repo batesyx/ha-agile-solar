@@ -231,7 +231,7 @@ def run_demo() -> None:
         grid_consumption_kw=0.0,
         battery_charge_kw=0.5,
         battery_discharge_kw=0.0,
-        work_mode="Self Use",
+        work_mode="Feed-in First",
         max_soc=100.0,
         min_soc=10.0,
     )

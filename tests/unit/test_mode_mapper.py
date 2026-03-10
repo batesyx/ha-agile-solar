@@ -10,9 +10,9 @@ from octopus_export_optimizer.recommendation.types import RecommendationState
     "state, expected_mode",
     [
         (RecommendationState.EXPORT_NOW, WorkMode.FEED_IN_FIRST),
-        (RecommendationState.HOLD_BATTERY, WorkMode.SELF_USE),
+        (RecommendationState.HOLD_BATTERY, WorkMode.FEED_IN_FIRST),
         (RecommendationState.CHARGE_FOR_LATER_EXPORT, WorkMode.FORCE_CHARGE),
-        (RecommendationState.NORMAL_SELF_CONSUMPTION, WorkMode.SELF_USE),
+        (RecommendationState.NORMAL_SELF_CONSUMPTION, WorkMode.FEED_IN_FIRST),
         (RecommendationState.INSUFFICIENT_DATA, None),
     ],
 )

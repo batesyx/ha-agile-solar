@@ -39,7 +39,7 @@ def controller():
         url="http://localhost:8123",
         token="test-token",
     )
-    settings = InverterControlSettings(enabled=True, min_command_interval_seconds=300)
+    settings = InverterControlSettings(enabled=True, min_command_interval_seconds=300, fallback_on_insufficient_data="feed_in_first")
     repo = MagicMock()
     ctrl = InverterController(ha, settings, repo)
     ctrl._client = MagicMock()
@@ -62,13 +62,13 @@ class TestSafetyLayers:
         result = controller.execute(_make_recommendation())
         assert result is None
 
-    def test_insufficient_data_falls_back_to_self_use(self, controller):
-        """With default fallback='self_use', INSUFFICIENT_DATA sends Self Use."""
+    def test_insufficient_data_falls_back_to_feed_in_first(self, controller):
+        """With default fallback='feed_in_first', INSUFFICIENT_DATA sends Feed-in First."""
         controller.set_auto_control(True)
         rec = _make_recommendation(state=RecommendationState.INSUFFICIENT_DATA)
         result = controller.execute(rec)
         assert result is not None
-        assert result.new_mode == WorkMode.SELF_USE.value
+        assert result.new_mode == WorkMode.FEED_IN_FIRST.value
         assert result.success is True
 
     def test_insufficient_data_noop_when_fallback_none(self):
@@ -262,7 +262,7 @@ class TestCommandRepoPersistence:
         record = CommandResult(
             id="test-001",
             timestamp=datetime.now(timezone.utc),
-            previous_mode="Self Use",
+            previous_mode="Feed-in First",
             new_mode="Force Discharge",
             target_max_soc=90,
             target_discharge_kw=4.5,
@@ -288,7 +288,7 @@ class TestCommandRepoPersistence:
             id="test-002",
             timestamp=datetime.now(timezone.utc),
             previous_mode=None,
-            new_mode="Self Use",
+            new_mode="Feed-in First",
             target_max_soc=90,
             target_discharge_kw=None,
             recommendation_state="HOLD_BATTERY",
