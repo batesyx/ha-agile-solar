@@ -6,7 +6,7 @@ import logging
 import signal
 import sys
 import threading
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -368,6 +368,16 @@ class Application:
         self.mqtt_publisher.publish_rate_schedule(
             today_export_rates,
             today_import_rates if today_import_rates else None,
+            now,
+        )
+
+        # Publish forward-looking rate schedule (now → 48h)
+        upcoming_end = now + timedelta(hours=48)
+        upcoming_export = self.tariff_repo.get_export_rates(now, upcoming_end)
+        upcoming_import = self.tariff_repo.get_import_rates(now, upcoming_end)
+        self.mqtt_publisher.publish_upcoming_rate_schedule(
+            upcoming_export,
+            upcoming_import if upcoming_import else None,
             now,
         )
 

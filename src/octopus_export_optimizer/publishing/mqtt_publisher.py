@@ -202,6 +202,25 @@ class MqttPublisher:
                 retain=True,
             )
 
+    def publish_upcoming_rate_schedule(
+        self,
+        export_slots: list[TariffSlot],
+        import_slots: list[TariffSlot] | None = None,
+        current_time: datetime | None = None,
+    ) -> None:
+        """Publish forward-looking rate schedule (now → 48h) for charting."""
+        self._publish(
+            f"{self.prefix}/rates/export/upcoming_schedule",
+            self.builder.rate_schedule_payload(export_slots, current_time),
+            retain=True,
+        )
+        if import_slots:
+            self._publish(
+                f"{self.prefix}/rates/import/upcoming_schedule",
+                self.builder.rate_schedule_payload(import_slots, current_time),
+                retain=True,
+            )
+
     def publish_service_status(self, last_run: datetime | None) -> None:
         """Publish service health status."""
         self._publish(
@@ -328,6 +347,10 @@ class MqttPublisher:
             ("feed_in", "solar/feed_in", "Optimizer Feed-in", "kW", "mdi:transmission-tower-export"),
             ("last_run", "service/last_run", "Optimizer Last Run", None, "mdi:clock-outline"),
             ("export_rate_schedule", "rates/export/schedule", "Export Rate Schedule", None, "mdi:chart-bar"),
+            ("import_rate", "rates/import/current", "Import Rate", "p/kWh", "mdi:currency-gbp"),
+            ("import_rate_schedule", "rates/import/schedule", "Import Rate Schedule", None, "mdi:chart-bar"),
+            ("upcoming_export_schedule", "rates/export/upcoming_schedule", "Upcoming Export Rates", None, "mdi:chart-timeline-variant"),
+            ("upcoming_import_schedule", "rates/import/upcoming_schedule", "Upcoming Import Rates", None, "mdi:chart-timeline-variant"),
         ]
 
         for object_id, state_suffix, name, unit, icon in sensors:
