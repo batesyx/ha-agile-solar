@@ -16,38 +16,41 @@ class CommandRepo:
 
     def save(self, record: CommandResult) -> None:
         """Persist a command result."""
-        self.db.conn.execute(
-            """INSERT OR REPLACE INTO inverter_commands
-               (id, timestamp, previous_mode, new_mode, target_max_soc,
-                recommendation_state, reason_code, success, error)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                record.id,
-                record.timestamp.isoformat(),
-                record.previous_mode,
-                record.new_mode,
-                record.target_max_soc,
-                record.recommendation_state,
-                record.reason_code,
-                1 if record.success else 0,
-                record.error,
-            ),
-        )
-        self.db.conn.commit()
+        with self.db.lock:
+            self.db.conn.execute(
+                """INSERT OR REPLACE INTO inverter_commands
+                   (id, timestamp, previous_mode, new_mode, target_max_soc,
+                    recommendation_state, reason_code, success, error)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    record.id,
+                    record.timestamp.isoformat(),
+                    record.previous_mode,
+                    record.new_mode,
+                    record.target_max_soc,
+                    record.recommendation_state,
+                    record.reason_code,
+                    1 if record.success else 0,
+                    record.error,
+                ),
+            )
+            self.db.conn.commit()
 
     def get_latest(self) -> CommandResult | None:
         """Get the most recent command."""
-        row = self.db.conn.execute(
-            "SELECT * FROM inverter_commands ORDER BY timestamp DESC LIMIT 1"
-        ).fetchone()
+        with self.db.lock:
+            row = self.db.conn.execute(
+                "SELECT * FROM inverter_commands ORDER BY timestamp DESC LIMIT 1"
+            ).fetchone()
         return self._row_to_result(row) if row else None
 
     def get_history(self, limit: int = 50) -> list[CommandResult]:
         """Get recent command history."""
-        rows = self.db.conn.execute(
-            "SELECT * FROM inverter_commands ORDER BY timestamp DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        with self.db.lock:
+            rows = self.db.conn.execute(
+                "SELECT * FROM inverter_commands ORDER BY timestamp DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
         return [self._row_to_result(row) for row in rows]
 
     @staticmethod

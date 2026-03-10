@@ -16,39 +16,42 @@ class JobRepo:
 
     def save(self, job: JobRun) -> None:
         """Insert or update a job run record."""
-        self.db.conn.execute(
-            """INSERT OR REPLACE INTO job_runs
-               (id, job_type, started_at, finished_at, status,
-                records_processed, error_message)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (
-                job.id,
-                job.job_type,
-                job.started_at.isoformat(),
-                job.finished_at.isoformat() if job.finished_at else None,
-                job.status,
-                job.records_processed,
-                job.error_message,
-            ),
-        )
-        self.db.conn.commit()
+        with self.db.lock:
+            self.db.conn.execute(
+                """INSERT OR REPLACE INTO job_runs
+                   (id, job_type, started_at, finished_at, status,
+                    records_processed, error_message)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    job.id,
+                    job.job_type,
+                    job.started_at.isoformat(),
+                    job.finished_at.isoformat() if job.finished_at else None,
+                    job.status,
+                    job.records_processed,
+                    job.error_message,
+                ),
+            )
+            self.db.conn.commit()
 
     def get_latest_by_type(self, job_type: str) -> JobRun | None:
         """Get the most recent run of a specific job type."""
-        row = self.db.conn.execute(
-            """SELECT * FROM job_runs
-               WHERE job_type = ?
-               ORDER BY started_at DESC LIMIT 1""",
-            (job_type,),
-        ).fetchone()
+        with self.db.lock:
+            row = self.db.conn.execute(
+                """SELECT * FROM job_runs
+                   WHERE job_type = ?
+                   ORDER BY started_at DESC LIMIT 1""",
+                (job_type,),
+            ).fetchone()
         return self._row_to_job(row) if row else None
 
     def get_recent(self, limit: int = 20) -> list[JobRun]:
         """Get recent job runs across all types."""
-        rows = self.db.conn.execute(
-            "SELECT * FROM job_runs ORDER BY started_at DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
+        with self.db.lock:
+            rows = self.db.conn.execute(
+                "SELECT * FROM job_runs ORDER BY started_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
         return [self._row_to_job(r) for r in rows]
 
     @staticmethod

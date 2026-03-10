@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 from pathlib import Path
 
 from octopus_export_optimizer.storage.migrations import v001_initial, v002_inverter_commands
@@ -22,6 +23,7 @@ class Database:
     def __init__(self, db_path: str = ":memory:") -> None:
         self.db_path = db_path
         self._conn: sqlite3.Connection | None = None
+        self.lock = threading.Lock()
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -34,10 +36,13 @@ class Database:
         if self.db_path != ":memory:":
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self._conn = sqlite3.connect(
+            self.db_path, check_same_thread=False, timeout=30.0
+        )
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
+        self._conn.execute("PRAGMA busy_timeout=30000")
         self._run_migrations()
 
     def close(self) -> None:
