@@ -12,6 +12,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from octopus_export_optimizer.calculations.aggregator import Aggregator
 from octopus_export_optimizer.calculations.revenue_calculator import RevenueCalculator
+from octopus_export_optimizer.calculations.export_planner import build_export_plan
 from octopus_export_optimizer.calculations.revenue_estimator import estimate_revenue
 from octopus_export_optimizer.calculations.solar_profile import SolarProfile
 from octopus_export_optimizer.config.settings import AppSettings
@@ -319,7 +320,26 @@ class Application:
             minimum_soc_override=reserve,
             tariff_data_age_minutes=tariff_data_age,
         )
-        recommendation = self.engine.evaluate(snapshot, upcoming_12h)
+        # Build export plan if enabled and there's exportable energy
+        export_plan = None
+        if (
+            self.settings.inverter_control.export_planner_enabled
+            and snapshot.exportable_battery_kwh
+            and snapshot.exportable_battery_kwh > 0
+        ):
+            export_plan = build_export_plan(
+                now=now,
+                upcoming_slots=upcoming_12h,
+                exportable_kwh=snapshot.exportable_battery_kwh,
+                export_threshold_pence=self.settings.thresholds.export_now_threshold_pence,
+                max_discharge_kw=self.settings.inverter_control.max_discharge_kw,
+                battery_capacity_kwh=self.settings.battery.capacity_kwh,
+                round_trip_efficiency=self.settings.battery.round_trip_efficiency,
+            )
+
+        recommendation = self.engine.evaluate(
+            snapshot, upcoming_12h, export_plan=export_plan
+        )
         self.recommendation_repo.save(recommendation, snapshot)
 
         # Execute inverter control

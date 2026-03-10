@@ -11,6 +11,7 @@ from octopus_export_optimizer.storage.migrations import (
     v001_initial,
     v002_inverter_commands,
     v003_freshness_and_import_costs,
+    v004_export_planner,
 )
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,7 @@ MIGRATIONS = [
     (1, v001_initial),
     (2, v002_inverter_commands),
     (3, v003_freshness_and_import_costs),
+    (4, v004_export_planner),
 ]
 
 

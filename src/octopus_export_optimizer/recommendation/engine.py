@@ -25,6 +25,7 @@ from octopus_export_optimizer.models.recommendation import (
     RecommendationInputSnapshot,
 )
 from octopus_export_optimizer.models.tariff import TariffSlot
+from octopus_export_optimizer.models.export_plan import ExportPlan
 from octopus_export_optimizer.recommendation.rules import (
     ChargeForLaterExportRule,
     ExportNowRule,
@@ -32,6 +33,7 @@ from octopus_export_optimizer.recommendation.rules import (
     InsufficientDataRule,
     NormalSelfConsumptionRule,
     OvernightChargeRule,
+    PlannedExportRule,
     Rule,
 )
 
@@ -70,17 +72,34 @@ class RecommendationEngine:
         self,
         snapshot: RecommendationInputSnapshot,
         upcoming_12h_rates: list[TariffSlot] | None = None,
+        export_plan: ExportPlan | None = None,
     ) -> Recommendation:
         """Evaluate rules and return a recommendation.
 
         Always returns a recommendation — the fallback rule
         (NormalSelfConsumption) guarantees this.
 
+        If export_plan is provided, PlannedExportRule is inserted
+        before ExportNowRule to enable multi-slot discharge planning.
+
         If upcoming_12h_rates is provided, calculates target_max_soc:
         100% if the earliest high-rate slot is within
         full_charge_lead_time_hours, else 90%.
         """
-        for rule in self.rules:
+        # Build rules list, inserting PlannedExportRule when a plan exists
+        rules = list(self.rules)
+        if export_plan is not None:
+            planned_rule = PlannedExportRule(
+                self.thresholds, self.battery, export_plan
+            )
+            # Insert before ExportNowRule (after ChargeForLaterExportRule)
+            insert_idx = next(
+                (i for i, r in enumerate(rules) if isinstance(r, ExportNowRule)),
+                len(rules),
+            )
+            rules.insert(insert_idx, planned_rule)
+
+        for rule in rules:
             result = rule.evaluate(snapshot)
             if result is not None:
                 break

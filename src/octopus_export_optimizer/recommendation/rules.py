@@ -189,6 +189,68 @@ class ChargeForLaterExportRule(Rule):
         return None
 
 
+class PlannedExportRule(Rule):
+    """Use export plan to decide whether to export or hold.
+
+    When an export plan is active, this rule fires for planned slots
+    (EXPORT_NOW with target discharge power) and holds during gaps
+    between planned slots when the rate is above threshold.
+    """
+
+    def __init__(
+        self,
+        thresholds: ThresholdSettings,
+        battery: BatterySettings,
+        export_plan,
+    ) -> None:
+        super().__init__(thresholds, battery)
+        self.plan = export_plan
+
+    def evaluate(self, snapshot: RecommendationInputSnapshot) -> Recommendation | None:
+        if self.plan is None:
+            return None
+
+        current_slot = self.plan.get_current_slot(snapshot.timestamp)
+
+        if current_slot is not None:
+            # Check SOC is still above reserve
+            if snapshot.battery_soc_pct is not None:
+                soc = self._normalize_soc(snapshot.battery_soc_pct)
+                if soc <= self.thresholds.reserve_soc_floor:
+                    return None  # Battery depleted, fall through
+
+            rec = self._make_recommendation(
+                snapshot,
+                RecommendationState.EXPORT_NOW,
+                ReasonCode.PLANNED_EXPORT,
+                f"Export plan: discharging at {current_slot.discharge_kw:.1f}kW "
+                f"during {current_slot.rate_pence:.1f}p/kWh slot "
+                f"({len(self.plan.planned_slots)} slots planned, "
+                f"{self.plan.total_planned_kwh:.1f}kWh total).",
+                battery_aware=True,
+            )
+            rec.target_discharge_kw = current_slot.discharge_kw
+            rec.export_plan_slots = len(self.plan.planned_slots)
+            return rec
+
+        # Not in a planned slot — should we hold for one?
+        next_slot = self.plan.get_next_slot(snapshot.timestamp)
+        if next_slot is not None and snapshot.current_export_rate_pence is not None:
+            rate = snapshot.current_export_rate_pence
+            if rate >= self.thresholds.export_now_threshold_pence:
+                return self._make_recommendation(
+                    snapshot,
+                    RecommendationState.HOLD_BATTERY,
+                    ReasonCode.PLANNED_HOLD,
+                    f"Rate {rate:.1f}p/kWh is above threshold but holding "
+                    f"for planned slot at {next_slot.rate_pence:.1f}p/kWh "
+                    f"starting {next_slot.interval_start.strftime('%H:%M')}.",
+                    battery_aware=True,
+                )
+
+        return None  # No plan opinion, fall through
+
+
 class ExportNowRule(Rule):
     """Recommend exporting when rate is high and no better slot ahead."""
 

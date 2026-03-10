@@ -1,0 +1,252 @@
+"""Tests for the export planner algorithm and rule integration."""
+
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from octopus_export_optimizer.calculations.export_planner import build_export_plan
+from octopus_export_optimizer.config.settings import InverterControlSettings
+from octopus_export_optimizer.models.export_plan import ExportPlan
+from octopus_export_optimizer.recommendation.engine import RecommendationEngine
+from octopus_export_optimizer.recommendation.types import ReasonCode, RecommendationState
+from tests.factories import make_recommendation_snapshot, make_tariff_slot
+
+
+NOW = datetime(2026, 3, 10, 10, 0, tzinfo=timezone.utc)
+
+
+def _slot(hours_from_now: float, rate: float = 20.0):
+    """Create a tariff slot at an offset from NOW."""
+    start = NOW + timedelta(hours=hours_from_now)
+    return make_tariff_slot(interval_start=start, rate_pence=rate)
+
+
+def _plan(
+    exportable: float = 5.0,
+    slots=None,
+    threshold: float = 15.0,
+    max_kw: float = 5.0,
+):
+    """Build a plan with sensible defaults."""
+    if slots is None:
+        slots = [_slot(1, 25), _slot(2, 20), _slot(3, 18)]
+    return build_export_plan(
+        now=NOW,
+        upcoming_slots=slots,
+        exportable_kwh=exportable,
+        export_threshold_pence=threshold,
+        max_discharge_kw=max_kw,
+        battery_capacity_kwh=11.52,
+        round_trip_efficiency=0.90,
+    )
+
+
+class TestBuildExportPlan:
+    def test_no_eligible_slots_returns_none(self):
+        result = _plan(slots=[_slot(1, rate=5.0)])  # below 15p threshold
+        assert result is None
+
+    def test_zero_exportable_returns_none(self):
+        result = _plan(exportable=0.0)
+        assert result is None
+
+    def test_negative_exportable_returns_none(self):
+        result = _plan(exportable=-1.0)
+        assert result is None
+
+    def test_empty_slots_returns_none(self):
+        result = _plan(slots=[])
+        assert result is None
+
+    def test_single_slot_plan(self):
+        plan = _plan(exportable=2.0, slots=[_slot(1, 25.0)])
+        assert plan is not None
+        assert len(plan.planned_slots) == 1
+        assert plan.planned_slots[0].rate_pence == 25.0
+        # 2 kWh × sqrt(0.90) ≈ 1.897 effective → 1.897 / 0.5h ≈ 3.79 kW
+        assert plan.discharge_kw == pytest.approx(3.795, abs=0.01)
+
+    def test_multiple_slots_highest_rates_selected(self):
+        slots = [_slot(1, 25), _slot(2, 15), _slot(3, 30), _slot(4, 20)]
+        plan = _plan(exportable=5.0, slots=slots, max_kw=5.0)
+        assert plan is not None
+        # max_kwh_per_slot = 5 × 0.5 = 2.5, slots_needed = ceil(5/2.5) = 2
+        assert len(plan.planned_slots) == 2
+        # Should pick 30p and 25p slots (top 2 by rate)
+        rates = {s.rate_pence for s in plan.planned_slots}
+        assert rates == {25.0, 30.0}
+
+    def test_energy_budget_limits_slot_count(self):
+        slots = [_slot(i, 20 + i) for i in range(1, 7)]  # 6 slots
+        # 3 kWh / (5 × 0.5) = ceil(3/2.5) = 2 slots needed
+        plan = _plan(exportable=3.0, slots=slots, max_kw=5.0)
+        assert plan is not None
+        assert len(plan.planned_slots) == 2
+
+    def test_discharge_power_clamped_to_max(self):
+        # 1 slot, 8 kWh → would need 16 kW but max is 5 kW
+        plan = _plan(exportable=8.0, slots=[_slot(1, 25)], max_kw=5.0)
+        assert plan is not None
+        assert plan.discharge_kw <= 5.0
+
+    def test_uniform_power_across_slots(self):
+        slots = [_slot(1, 25), _slot(2, 30), _slot(3, 20)]
+        plan = _plan(exportable=6.0, slots=slots, max_kw=5.0)
+        assert plan is not None
+        powers = {s.discharge_kw for s in plan.planned_slots}
+        assert len(powers) == 1  # all slots same power
+
+    def test_more_energy_than_slots_uses_all_slots(self):
+        slots = [_slot(1, 25), _slot(2, 20)]
+        # 10 kWh but only 2 slots → 10/(2×0.5) = 10 kW, clamped to 5 kW
+        plan = _plan(exportable=10.0, slots=slots, max_kw=5.0)
+        assert plan is not None
+        assert len(plan.planned_slots) == 2
+        assert plan.discharge_kw == 5.0
+
+    def test_current_slot_included_when_eligible(self):
+        # Slot that started 10 min ago, hasn't ended yet
+        current = make_tariff_slot(
+            interval_start=NOW - timedelta(minutes=10),
+            rate_pence=25.0,
+        )
+        plan = _plan(exportable=2.0, slots=[current])
+        assert plan is not None
+        assert len(plan.planned_slots) == 1
+
+    def test_ended_slot_excluded(self):
+        ended = make_tariff_slot(
+            interval_start=NOW - timedelta(hours=1),
+            rate_pence=25.0,
+        )
+        plan = _plan(exportable=2.0, slots=[ended, _slot(1, 20)])
+        assert plan is not None
+        assert len(plan.planned_slots) == 1
+        assert plan.planned_slots[0].rate_pence == 20.0
+
+    def test_negative_rates_excluded(self):
+        slots = [_slot(1, -5.0), _slot(2, 25.0)]
+        plan = _plan(exportable=2.0, slots=slots)
+        assert plan is not None
+        assert len(plan.planned_slots) == 1
+        assert plan.planned_slots[0].rate_pence == 25.0
+
+    def test_slots_sorted_by_time_in_output(self):
+        # Input: 3h slot first by rate, 1h slot second
+        slots = [_slot(3, 30), _slot(1, 25)]
+        plan = _plan(exportable=4.0, slots=slots, max_kw=5.0)
+        assert plan is not None
+        starts = [s.interval_start for s in plan.planned_slots]
+        assert starts == sorted(starts)
+
+    def test_plan_fields_populated(self):
+        plan = _plan(exportable=5.0, max_kw=5.0)
+        assert plan is not None
+        assert plan.exportable_kwh == pytest.approx(5.0)
+        assert plan.total_planned_kwh > 0
+        assert plan.created_at is not None
+
+
+class TestExportPlanLookup:
+    def test_get_current_slot_found(self):
+        plan = _plan(exportable=5.0)
+        assert plan is not None
+        # Move time into the first planned slot
+        slot = plan.planned_slots[0]
+        mid = slot.interval_start + timedelta(minutes=15)
+        assert plan.get_current_slot(mid) == slot
+
+    def test_get_current_slot_not_found(self):
+        plan = _plan(exportable=5.0)
+        assert plan is not None
+        # Time before any planned slot
+        assert plan.get_current_slot(NOW) is None
+
+    def test_get_next_slot(self):
+        plan = _plan(exportable=5.0)
+        assert plan is not None
+        nxt = plan.get_next_slot(NOW)
+        assert nxt is not None
+        assert nxt.interval_start > NOW
+
+
+class TestPlannedExportRule:
+    """Test PlannedExportRule via the engine (integration)."""
+
+    @pytest.fixture
+    def engine(self, thresholds, battery):
+        inverter = InverterControlSettings(
+            export_planner_enabled=True,
+            max_discharge_kw=5.0,
+        )
+        return RecommendationEngine(thresholds, battery, inverter_control=inverter)
+
+    def test_planned_slot_produces_export_now(self, engine):
+        """In a planned slot → EXPORT_NOW / PLANNED_EXPORT."""
+        plan = _plan(exportable=5.0)
+        assert plan is not None
+        slot = plan.planned_slots[0]
+        mid = slot.interval_start + timedelta(minutes=10)
+        snapshot = make_recommendation_snapshot(
+            timestamp=mid,
+            current_export_rate=slot.rate_pence,
+            battery_soc_pct=70.0,
+        )
+        result = engine.evaluate(snapshot, export_plan=plan)
+        assert result.state == RecommendationState.EXPORT_NOW
+        assert result.reason_code == ReasonCode.PLANNED_EXPORT
+        assert result.target_discharge_kw == slot.discharge_kw
+        assert result.export_plan_slots == len(plan.planned_slots)
+
+    def test_no_plan_falls_through_to_legacy(self, engine):
+        """Without a plan, legacy ExportNowRule fires."""
+        snapshot = make_recommendation_snapshot(
+            timestamp=NOW,
+            current_export_rate=20.0,
+            best_upcoming_rate=18.0,
+            battery_soc_pct=70.0,
+        )
+        result = engine.evaluate(snapshot, export_plan=None)
+        assert result.state == RecommendationState.EXPORT_NOW
+        assert result.reason_code != ReasonCode.PLANNED_EXPORT
+
+    def test_planned_hold_when_better_slot_coming(self, engine):
+        """Rate above threshold but not in planned slot → HOLD."""
+        plan = _plan(exportable=5.0, slots=[_slot(2, 25)])
+        assert plan is not None
+        snapshot = make_recommendation_snapshot(
+            timestamp=NOW,
+            current_export_rate=16.0,  # above 15p threshold
+            best_upcoming_rate=25.0,
+            battery_soc_pct=70.0,
+        )
+        result = engine.evaluate(snapshot, export_plan=plan)
+        assert result.state == RecommendationState.HOLD_BATTERY
+        assert result.reason_code == ReasonCode.PLANNED_HOLD
+
+    def test_soc_at_reserve_skips_planned_slot(self, engine, thresholds):
+        """Battery at reserve floor → planned slot skipped, falls through."""
+        plan = _plan(exportable=5.0)
+        assert plan is not None
+        slot = plan.planned_slots[0]
+        mid = slot.interval_start + timedelta(minutes=10)
+        snapshot = make_recommendation_snapshot(
+            timestamp=mid,
+            current_export_rate=slot.rate_pence,
+            battery_soc_pct=thresholds.reserve_soc_floor * 100,  # at floor
+        )
+        result = engine.evaluate(snapshot, export_plan=plan)
+        # Should NOT be PLANNED_EXPORT (SOC too low)
+        assert result.reason_code != ReasonCode.PLANNED_EXPORT
+
+    def test_unplanned_low_rate_falls_through(self, engine):
+        """Rate below threshold + not in planned slot → normal self consumption."""
+        plan = _plan(exportable=5.0, slots=[_slot(3, 25)])
+        snapshot = make_recommendation_snapshot(
+            timestamp=NOW,
+            current_export_rate=5.0,  # well below threshold
+            best_upcoming_rate=25.0,
+            battery_soc_pct=70.0,
+        )
+        result = engine.evaluate(snapshot, export_plan=plan)
+        assert result.state == RecommendationState.NORMAL_SELF_CONSUMPTION

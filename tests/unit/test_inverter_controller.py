@@ -8,14 +8,18 @@ import pytest
 from octopus_export_optimizer.config.settings import HaEntityIds, HaSettings, InverterControlSettings
 from octopus_export_optimizer.control.inverter_controller import InverterController
 from octopus_export_optimizer.control.mode_mapper import WorkMode
+from octopus_export_optimizer.control.models import CommandResult
 from octopus_export_optimizer.models.recommendation import Recommendation
 from octopus_export_optimizer.recommendation.types import ReasonCode, RecommendationState
+from octopus_export_optimizer.storage.command_repo import CommandRepo
+from octopus_export_optimizer.storage.database import Database
 
 
 def _make_recommendation(
     state: RecommendationState = RecommendationState.EXPORT_NOW,
     reason_code: ReasonCode = ReasonCode.HIGH_RATE_WITH_BATTERY,
     target_max_soc: int | None = 90,
+    target_discharge_kw: float | None = None,
 ) -> Recommendation:
     return Recommendation(
         timestamp=datetime.now(timezone.utc),
@@ -25,6 +29,7 @@ def _make_recommendation(
         battery_aware=True,
         input_snapshot_id="test-snap",
         target_max_soc=target_max_soc,
+        target_discharge_kw=target_discharge_kw,
     )
 
 
@@ -166,3 +171,133 @@ class TestCommandExecution:
         controller.execute(rec)
 
         controller.command_repo.save.assert_called_once()
+
+
+class TestForceDischarge:
+    def test_discharge_kw_overrides_to_force_discharge(self, controller):
+        """target_discharge_kw overrides work mode to Force Discharge."""
+        controller.set_auto_control(True)
+        rec = _make_recommendation(
+            state=RecommendationState.EXPORT_NOW,
+            reason_code=ReasonCode.PLANNED_EXPORT,
+            target_discharge_kw=4.5,
+        )
+        result = controller.execute(rec)
+
+        assert result is not None
+        assert result.success is True
+        assert result.new_mode == WorkMode.FORCE_DISCHARGE.value
+        assert result.target_discharge_kw == 4.5
+
+    def test_force_discharge_sends_power_command(self, controller):
+        """Force discharge sends both work mode and power level."""
+        controller.set_auto_control(True)
+        rec = _make_recommendation(
+            reason_code=ReasonCode.PLANNED_EXPORT,
+            target_discharge_kw=5.0,
+        )
+        controller.execute(rec)
+
+        # Should have called post for work mode + discharge power + max_soc
+        calls = controller._client.post.call_args_list
+        urls = [c[0][0] for c in calls]
+        assert "/api/services/select/select_option" in urls  # work mode
+        assert "/api/services/number/set_value" in urls  # power + soc
+
+    def test_discharge_kw_idempotent(self, controller):
+        """Same discharge_kw → no repeat command."""
+        controller.set_auto_control(True)
+        rec = _make_recommendation(
+            reason_code=ReasonCode.PLANNED_EXPORT,
+            target_discharge_kw=5.0,
+        )
+        controller.execute(rec)
+
+        # Wait past rate limit
+        controller._last_command_time = datetime.now(timezone.utc) - timedelta(seconds=301)
+        result = controller.execute(rec)
+        assert result is None  # Idempotent
+
+    def test_discharge_kw_change_sends_new_command(self, controller):
+        """Changed discharge_kw triggers a new command."""
+        controller.set_auto_control(True)
+        rec1 = _make_recommendation(
+            reason_code=ReasonCode.PLANNED_EXPORT,
+            target_discharge_kw=5.0,
+        )
+        controller.execute(rec1)
+
+        # Wait past rate limit
+        controller._last_command_time = datetime.now(timezone.utc) - timedelta(seconds=301)
+
+        rec2 = _make_recommendation(
+            reason_code=ReasonCode.PLANNED_EXPORT,
+            target_discharge_kw=3.5,
+        )
+        result = controller.execute(rec2)
+        assert result is not None
+        assert result.target_discharge_kw == 3.5
+
+    def test_discharge_kw_recorded_in_result(self, controller):
+        """CommandResult includes target_discharge_kw."""
+        controller.set_auto_control(True)
+        rec = _make_recommendation(
+            reason_code=ReasonCode.PLANNED_EXPORT,
+            target_discharge_kw=4.0,
+        )
+        result = controller.execute(rec)
+
+        assert result is not None
+        saved = controller.command_repo.save.call_args[0][0]
+        assert saved.target_discharge_kw == 4.0
+
+
+class TestCommandRepoPersistence:
+    def test_target_discharge_kw_round_trips(self):
+        """target_discharge_kw survives save → get_latest via SQLite."""
+        db = Database(":memory:")
+        db.connect()
+        repo = CommandRepo(db)
+
+        record = CommandResult(
+            id="test-001",
+            timestamp=datetime.now(timezone.utc),
+            previous_mode="Self Use",
+            new_mode="Force Discharge",
+            target_max_soc=90,
+            target_discharge_kw=4.5,
+            recommendation_state="EXPORT_NOW",
+            reason_code="PLANNED_EXPORT",
+            success=True,
+        )
+        repo.save(record)
+        loaded = repo.get_latest()
+
+        assert loaded is not None
+        assert loaded.target_discharge_kw == 4.5
+        assert loaded.new_mode == "Force Discharge"
+        db.close()
+
+    def test_target_discharge_kw_none_round_trips(self):
+        """None target_discharge_kw persists correctly."""
+        db = Database(":memory:")
+        db.connect()
+        repo = CommandRepo(db)
+
+        record = CommandResult(
+            id="test-002",
+            timestamp=datetime.now(timezone.utc),
+            previous_mode=None,
+            new_mode="Self Use",
+            target_max_soc=90,
+            target_discharge_kw=None,
+            recommendation_state="HOLD_BATTERY",
+            reason_code="BETTER_SLOT_COMING",
+            success=True,
+        )
+        repo.save(record)
+        loaded = repo.get_latest()
+
+        assert loaded is not None
+        assert loaded.target_discharge_kw is None
+        db.close()

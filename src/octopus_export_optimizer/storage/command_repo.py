@@ -20,14 +20,16 @@ class CommandRepo:
             self.db.conn.execute(
                 """INSERT OR REPLACE INTO inverter_commands
                    (id, timestamp, previous_mode, new_mode, target_max_soc,
+                    target_discharge_kw,
                     recommendation_state, reason_code, success, error)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     record.id,
                     record.timestamp.isoformat(),
                     record.previous_mode,
                     record.new_mode,
                     record.target_max_soc,
+                    record.target_discharge_kw,
                     record.recommendation_state,
                     record.reason_code,
                     1 if record.success else 0,
@@ -61,6 +63,7 @@ class CommandRepo:
             previous_mode=row["previous_mode"],
             new_mode=row["new_mode"],
             target_max_soc=row["target_max_soc"],
+            target_discharge_kw=row["target_discharge_kw"],
             recommendation_state=row["recommendation_state"],
             reason_code=row["reason_code"],
             success=bool(row["success"]),

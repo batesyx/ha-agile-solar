@@ -15,6 +15,7 @@ class CommandResult(BaseModel):
     previous_mode: str | None
     new_mode: str
     target_max_soc: int | None = None
+    target_discharge_kw: float | None = None
     recommendation_state: str
     reason_code: str
     success: bool

@@ -113,6 +113,38 @@ class MqttPublisher:
             retain=True,
         )
 
+        # Export plan fields
+        if rec and rec.target_discharge_kw is not None:
+            self._publish(
+                f"{self.prefix}/plan/discharge_kw",
+                f"{rec.target_discharge_kw:.1f}",
+                retain=True,
+            )
+            self._publish(
+                f"{self.prefix}/plan/status",
+                "ACTIVE",
+                retain=True,
+            )
+        elif rec and rec.reason_code.value == "PLANNED_HOLD":
+            self._publish(
+                f"{self.prefix}/plan/discharge_kw", "0.0", retain=True,
+            )
+            self._publish(
+                f"{self.prefix}/plan/status", "HOLDING", retain=True,
+            )
+        else:
+            self._publish(
+                f"{self.prefix}/plan/discharge_kw", "0.0", retain=True,
+            )
+            self._publish(
+                f"{self.prefix}/plan/status", "NONE", retain=True,
+            )
+        self._publish(
+            f"{self.prefix}/plan/slots_planned",
+            str(rec.export_plan_slots or 0) if rec else "0",
+            retain=True,
+        )
+
     def publish_revenue(
         self,
         today: RevenueSummary | None,
@@ -396,6 +428,9 @@ class MqttPublisher:
             ("tariff_status", "health/tariff_status", "Tariff Data Status", None, "mdi:cloud-check"),
             ("ha_state_age", "health/ha_state_age", "HA State Age", "min", "mdi:clock-alert-outline"),
             ("ha_state_status", "health/ha_state_status", "HA State Status", None, "mdi:home-heart"),
+            ("plan_discharge_kw", "plan/discharge_kw", "Plan Discharge Power", "kW", "mdi:lightning-bolt-circle"),
+            ("plan_status", "plan/status", "Export Plan Status", None, "mdi:calendar-clock"),
+            ("plan_slots_planned", "plan/slots_planned", "Plan Slots Scheduled", None, "mdi:calendar-multiple"),
         ]
 
         # Schedule sensors need json_attributes_topic (payload exceeds 255-char state limit)

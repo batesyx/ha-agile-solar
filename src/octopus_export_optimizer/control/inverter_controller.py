@@ -43,6 +43,7 @@ class InverterController:
         self._extra_buffer_kwh: float = 0.0
         self._last_commanded_mode: WorkMode | None = None
         self._last_commanded_max_soc: int | None = None
+        self._last_commanded_discharge_kw: float | None = None
         self._last_command_time: datetime | None = None
 
         self._client = httpx.Client(
@@ -106,6 +107,11 @@ class InverterController:
             if target_mode is None:
                 return None
 
+        # Override to Force Discharge when export planner sets a power target
+        target_discharge_kw = recommendation.target_discharge_kw
+        if target_discharge_kw is not None:
+            target_mode = WorkMode.FORCE_DISCHARGE
+
         target_max_soc = recommendation.target_max_soc
         if target_max_soc is not None:
             target_max_soc = max(10, min(100, target_max_soc))
@@ -116,7 +122,11 @@ class InverterController:
             target_max_soc is not None
             and target_max_soc != self._last_commanded_max_soc
         )
-        if not mode_changed and not soc_changed:
+        discharge_kw_changed = (
+            target_discharge_kw is not None
+            and target_discharge_kw != self._last_commanded_discharge_kw
+        )
+        if not mode_changed and not soc_changed and not discharge_kw_changed:
             return None  # Idempotent — no-op
 
         # Rate limit
@@ -140,6 +150,9 @@ class InverterController:
             if mode_changed:
                 self._send_work_mode(target_mode)
 
+            if discharge_kw_changed and target_discharge_kw is not None:
+                self._send_force_discharge_power(target_discharge_kw)
+
             if soc_changed and target_max_soc is not None:
                 self._send_max_soc(target_max_soc)
         except Exception as e:
@@ -154,6 +167,7 @@ class InverterController:
             previous_mode=previous_mode,
             new_mode=target_mode.value,
             target_max_soc=target_max_soc,
+            target_discharge_kw=target_discharge_kw,
             recommendation_state=recommendation.state,
             reason_code=recommendation.reason_code,
             success=success,
@@ -164,12 +178,14 @@ class InverterController:
         if success:
             self._last_commanded_mode = target_mode
             self._last_commanded_max_soc = target_max_soc
+            self._last_commanded_discharge_kw = target_discharge_kw
             self._last_command_time = now
             logger.info(
-                "Inverter command: %s → %s (max_soc=%s, reason=%s)",
+                "Inverter command: %s → %s (max_soc=%s, discharge_kw=%s, reason=%s)",
                 previous_mode,
                 target_mode.value,
                 target_max_soc,
+                target_discharge_kw,
                 recommendation.reason_code,
             )
 
@@ -186,6 +202,18 @@ class InverterController:
         )
         resp.raise_for_status()
         logger.debug("Set work mode to %s", mode.value)
+
+    def _send_force_discharge_power(self, power_kw: float) -> None:
+        """Set force discharge power via HA number entity."""
+        resp = self._client.post(
+            "/api/services/number/set_value",
+            json={
+                "entity_id": self.ha_settings.entity_ids.force_discharge_power,
+                "value": round(power_kw, 3),
+            },
+        )
+        resp.raise_for_status()
+        logger.debug("Set force discharge power to %.3f kW", power_kw)
 
     def _send_max_soc(self, value: int) -> None:
         """Set Max SoC via HA number entity."""

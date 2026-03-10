@@ -107,6 +107,8 @@ class InverterControlSettings(BaseModel):
     default_evening_load_kw: float = 1.2
     fallback_on_insufficient_data: str = "self_use"  # "self_use" or "none"
     full_charge_lead_time_hours: float = 1.5  # hours before peak to raise max_soc to 100%
+    export_planner_enabled: bool = False  # Enable multi-slot export planning
+    max_discharge_kw: float = 5.0  # ~24A, under 25A continuous target
 
 
 class HaEntityIds(BaseModel):
