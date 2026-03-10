@@ -12,6 +12,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from octopus_export_optimizer.calculations.aggregator import Aggregator
 from octopus_export_optimizer.calculations.revenue_calculator import RevenueCalculator
+from octopus_export_optimizer.calculations.revenue_estimator import estimate_revenue
 from octopus_export_optimizer.calculations.solar_profile import SolarProfile
 from octopus_export_optimizer.config.settings import AppSettings
 from octopus_export_optimizer.control.evening_reserve import (
@@ -343,7 +344,47 @@ class Application:
         today_summary = self.revenue_repo.get_summary("day", today.isoformat())
         month_key = f"{today.year}-{today.month:02d}"
         month_summary = self.revenue_repo.get_summary("month", month_key)
-        self.mqtt_publisher.publish_revenue(today_summary, month_summary)
+
+        # Estimate today's revenue from HA feed-in data when settlement
+        # data hasn't arrived yet (typically ~24h delay from Octopus).
+        today_is_estimated = False
+        if today_summary is None or today_summary.total_export_kwh == 0:
+            day_start = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
+            day_snapshots = self.ha_state_repo.get_by_range(day_start, now)
+            day_tariffs = self.tariff_repo.get_export_rates(day_start, now)
+            estimate = estimate_revenue(
+                day_snapshots, day_tariffs, self.settings.thresholds, now,
+            )
+            if estimate.export_kwh > 0:
+                from octopus_export_optimizer.models.revenue import RevenueSummary
+
+                today_summary = RevenueSummary(
+                    period_type="day",
+                    period_key=today.isoformat(),
+                    total_export_kwh=estimate.export_kwh,
+                    agile_revenue_pence=estimate.agile_revenue_pence,
+                    flat_revenue_pence=estimate.flat_revenue_pence,
+                    uplift_pence=estimate.uplift_pence,
+                    avg_realised_rate_pence=(
+                        estimate.agile_revenue_pence / estimate.export_kwh
+                        if estimate.export_kwh > 0
+                        else 0.0
+                    ),
+                    intervals_above_flat=0,
+                    total_intervals=0,
+                    calculated_at=now,
+                )
+                today_is_estimated = True
+                logger.debug(
+                    "Using estimated today revenue: %.1fp from %.2f kWh (%d snapshots)",
+                    estimate.agile_revenue_pence,
+                    estimate.export_kwh,
+                    estimate.snapshot_count,
+                )
+
+        self.mqtt_publisher.publish_revenue(
+            today_summary, month_summary, today_is_estimated=today_is_estimated,
+        )
 
         ha_state = self.ha_state_repo.get_latest()
         self.mqtt_publisher.publish_ha_state(ha_state)

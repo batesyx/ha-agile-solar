@@ -117,6 +117,7 @@ class MqttPublisher:
         self,
         today: RevenueSummary | None,
         month: RevenueSummary | None,
+        today_is_estimated: bool = False,
     ) -> None:
         """Publish today and month revenue summaries."""
         for period, summary in [("today", today), ("month", month)]:
@@ -127,6 +128,12 @@ class MqttPublisher:
                     value,
                     retain=True,
                 )
+        # Publish whether today's figures are estimated or settled
+        self._publish(
+            f"{self.prefix}/revenue/today/source",
+            "estimated" if today_is_estimated else "settled",
+            retain=True,
+        )
 
     def publish_ha_state(self, snapshot: HaStateSnapshot | None) -> None:
         """Publish current HA state values."""
@@ -256,6 +263,7 @@ class MqttPublisher:
             ("today_flat_revenue", "revenue/today/flat_pence", "Today Flat Baseline Revenue", "p", "mdi:cash-minus"),
             ("today_uplift", "revenue/today/uplift_pence", "Today Uplift vs Flat", "p", "mdi:cash-plus"),
             ("today_export_kwh", "revenue/today/export_kwh", "Today Exported", "kWh", "mdi:lightning-bolt"),
+            ("today_revenue_source", "revenue/today/source", "Today Revenue Source", None, "mdi:information-outline"),
             ("month_actual_revenue", "revenue/month/actual_pence", "Month Export Revenue", "p", "mdi:cash"),
             ("month_flat_revenue", "revenue/month/flat_pence", "Month Flat Baseline Revenue", "p", "mdi:cash-minus"),
             ("month_uplift", "revenue/month/uplift_pence", "Month Uplift vs Flat", "p", "mdi:cash-plus"),
