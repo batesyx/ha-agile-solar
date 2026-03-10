@@ -238,15 +238,18 @@ class PlannedExportRule(Rule):
         if next_slot is not None and snapshot.current_export_rate_pence is not None:
             rate = snapshot.current_export_rate_pence
             if rate >= self.thresholds.export_now_threshold_pence:
-                return self._make_recommendation(
-                    snapshot,
-                    RecommendationState.HOLD_BATTERY,
-                    ReasonCode.PLANNED_HOLD,
-                    f"Rate {rate:.1f}p/kWh is above threshold but holding "
-                    f"for planned slot at {next_slot.rate_pence:.1f}p/kWh "
-                    f"starting {next_slot.interval_start.strftime('%H:%M')}.",
-                    battery_aware=True,
-                )
+                # Only hold if the planned slot is actually better than current
+                if next_slot.rate_pence > rate:
+                    return self._make_recommendation(
+                        snapshot,
+                        RecommendationState.HOLD_BATTERY,
+                        ReasonCode.PLANNED_HOLD,
+                        f"Rate {rate:.1f}p/kWh is above threshold but holding "
+                        f"for planned slot at {next_slot.rate_pence:.1f}p/kWh "
+                        f"starting {next_slot.interval_start.strftime('%H:%M')}.",
+                        battery_aware=True,
+                    )
+                # Current rate is as good or better — fall through to ExportNowRule
 
         return None  # No plan opinion, fall through
 

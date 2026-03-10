@@ -239,6 +239,20 @@ class TestPlannedExportRule:
         # Should NOT be PLANNED_EXPORT (SOC too low)
         assert result.reason_code != ReasonCode.PLANNED_EXPORT
 
+    def test_planned_hold_skipped_when_current_rate_better(self, engine):
+        """Current rate >= planned slot rate → export now, don't hold."""
+        plan = _plan(exportable=5.0, slots=[_slot(2, 18)])
+        assert plan is not None
+        snapshot = make_recommendation_snapshot(
+            timestamp=NOW,
+            current_export_rate=19.0,  # above threshold AND above planned 18p
+            best_upcoming_rate=18.0,
+            battery_soc_pct=70.0,
+        )
+        result = engine.evaluate(snapshot, export_plan=plan)
+        assert result.state == RecommendationState.EXPORT_NOW
+        assert result.reason_code != ReasonCode.PLANNED_HOLD
+
     def test_unplanned_low_rate_falls_through(self, engine):
         """Rate below threshold + not in planned slot → normal self consumption."""
         plan = _plan(exportable=5.0, slots=[_slot(3, 25)])
