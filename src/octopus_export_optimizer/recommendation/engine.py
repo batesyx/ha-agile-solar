@@ -77,7 +77,8 @@ class RecommendationEngine:
         (NormalSelfConsumption) guarantees this.
 
         If upcoming_12h_rates is provided, calculates target_max_soc:
-        100% if any rate exceeds high_export_threshold, else 90%.
+        100% if the earliest high-rate slot is within
+        full_charge_lead_time_hours, else 90%.
         """
         for rule in self.rules:
             result = rule.evaluate(snapshot)
@@ -99,13 +100,25 @@ class RecommendationEngine:
                 input_snapshot_id=snapshot.id,
             )
 
-        # Calculate target Max SoC based on upcoming export rates
+        # Calculate target Max SoC based on upcoming export rates.
+        # Only raise to 100% when the earliest high-rate slot is
+        # within full_charge_lead_time_hours, to avoid sitting at
+        # 100% SOC for hours (reduces battery degradation).
         if upcoming_12h_rates:
             threshold = self.inverter_control.high_export_threshold_for_full_charge
-            has_strong_export = any(
-                s.rate_inc_vat_pence >= threshold for s in upcoming_12h_rates
+            lead_time = timedelta(
+                hours=self.inverter_control.full_charge_lead_time_hours
             )
-            result.target_max_soc = 100 if has_strong_export else 90
+            high_rate_slots = [
+                s for s in upcoming_12h_rates
+                if s.rate_inc_vat_pence >= threshold
+            ]
+            if high_rate_slots:
+                earliest = min(high_rate_slots, key=lambda s: s.interval_start)
+                time_until = earliest.interval_start - snapshot.timestamp
+                result.target_max_soc = 100 if time_until <= lead_time else 90
+            else:
+                result.target_max_soc = 90
         else:
             result.target_max_soc = 90
 

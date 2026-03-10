@@ -106,6 +106,7 @@ class InverterControlSettings(BaseModel):
     high_export_threshold_for_full_charge: float = 20.0  # p/kWh
     default_evening_load_kw: float = 1.2
     fallback_on_insufficient_data: str = "self_use"  # "self_use" or "none"
+    full_charge_lead_time_hours: float = 1.5  # hours before peak to raise max_soc to 100%
 
 
 class HaEntityIds(BaseModel):

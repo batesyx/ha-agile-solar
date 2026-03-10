@@ -4,10 +4,14 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from octopus_export_optimizer.config.settings import BatterySettings, ThresholdSettings
+from octopus_export_optimizer.config.settings import (
+    BatterySettings,
+    InverterControlSettings,
+    ThresholdSettings,
+)
 from octopus_export_optimizer.recommendation.engine import RecommendationEngine
 from octopus_export_optimizer.recommendation.types import ReasonCode, RecommendationState
-from tests.factories import make_recommendation_snapshot
+from tests.factories import make_recommendation_snapshot, make_tariff_slot
 
 
 @pytest.fixture
@@ -140,3 +144,75 @@ class TestExplanations:
         snapshot = make_recommendation_snapshot()
         result = engine.evaluate(snapshot)
         assert result.input_snapshot_id == snapshot.id
+
+
+class TestMaxSocTiming:
+    """Test time-gated max_soc: only raise to 100% near peak export."""
+
+    @pytest.fixture
+    def soc_engine(self, thresholds, battery):
+        inverter = InverterControlSettings(
+            high_export_threshold_for_full_charge=20.0,
+            full_charge_lead_time_hours=1.5,
+        )
+        return RecommendationEngine(thresholds, battery, inverter_control=inverter)
+
+    def _make_rates(self, now, offsets_hours, rate=25.0):
+        """Create tariff slots at given hour offsets from now."""
+        return [
+            make_tariff_slot(
+                interval_start=now + timedelta(hours=h),
+                rate_pence=rate,
+            )
+            for h in offsets_hours
+        ]
+
+    def test_high_rate_far_away_stays_at_90(self, soc_engine):
+        now = datetime(2026, 3, 10, 9, 0, tzinfo=timezone.utc)
+        snapshot = make_recommendation_snapshot(timestamp=now)
+        rates = self._make_rates(now, [6.0])
+        result = soc_engine.evaluate(snapshot, upcoming_12h_rates=rates)
+        assert result.target_max_soc == 90
+
+    def test_high_rate_within_lead_time_raises_to_100(self, soc_engine):
+        now = datetime(2026, 3, 10, 9, 0, tzinfo=timezone.utc)
+        snapshot = make_recommendation_snapshot(timestamp=now)
+        rates = self._make_rates(now, [1.0])
+        result = soc_engine.evaluate(snapshot, upcoming_12h_rates=rates)
+        assert result.target_max_soc == 100
+
+    def test_high_rate_exactly_at_boundary_raises_to_100(self, soc_engine):
+        now = datetime(2026, 3, 10, 9, 0, tzinfo=timezone.utc)
+        snapshot = make_recommendation_snapshot(timestamp=now)
+        rates = self._make_rates(now, [1.5])  # exactly at lead time
+        result = soc_engine.evaluate(snapshot, upcoming_12h_rates=rates)
+        assert result.target_max_soc == 100
+
+    def test_no_high_rates_stays_at_90(self, soc_engine):
+        now = datetime(2026, 3, 10, 9, 0, tzinfo=timezone.utc)
+        snapshot = make_recommendation_snapshot(timestamp=now)
+        rates = self._make_rates(now, [1.0], rate=10.0)  # below threshold
+        result = soc_engine.evaluate(snapshot, upcoming_12h_rates=rates)
+        assert result.target_max_soc == 90
+
+    def test_active_slot_raises_to_100(self, soc_engine):
+        """Slot that started 10 min ago (negative time_until) → 100%."""
+        now = datetime(2026, 3, 10, 9, 10, tzinfo=timezone.utc)
+        snapshot = make_recommendation_snapshot(timestamp=now)
+        rates = self._make_rates(now, [-10 / 60])  # started 10 min ago
+        result = soc_engine.evaluate(snapshot, upcoming_12h_rates=rates)
+        assert result.target_max_soc == 100
+
+    def test_multiple_slots_earliest_far_stays_at_90(self, soc_engine):
+        now = datetime(2026, 3, 10, 9, 0, tzinfo=timezone.utc)
+        snapshot = make_recommendation_snapshot(timestamp=now)
+        rates = self._make_rates(now, [4.0, 6.0])
+        result = soc_engine.evaluate(snapshot, upcoming_12h_rates=rates)
+        assert result.target_max_soc == 90
+
+    def test_multiple_slots_earliest_close_raises_to_100(self, soc_engine):
+        now = datetime(2026, 3, 10, 9, 0, tzinfo=timezone.utc)
+        snapshot = make_recommendation_snapshot(timestamp=now)
+        rates = self._make_rates(now, [1.0, 6.0])
+        result = soc_engine.evaluate(snapshot, upcoming_12h_rates=rates)
+        assert result.target_max_soc == 100
