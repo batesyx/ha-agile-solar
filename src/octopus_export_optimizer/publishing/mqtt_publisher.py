@@ -155,6 +155,25 @@ class MqttPublisher:
             retain=True,
         )
 
+    def publish_rate_schedule(
+        self,
+        export_slots: list[TariffSlot],
+        import_slots: list[TariffSlot] | None = None,
+        current_time: datetime | None = None,
+    ) -> None:
+        """Publish today's full rate schedule for charting."""
+        self._publish(
+            f"{self.prefix}/rates/export/schedule",
+            self.builder.rate_schedule_payload(export_slots, current_time),
+            retain=True,
+        )
+        if import_slots:
+            self._publish(
+                f"{self.prefix}/rates/import/schedule",
+                self.builder.rate_schedule_payload(import_slots, current_time),
+                retain=True,
+            )
+
     def publish_service_status(self, last_run: datetime | None) -> None:
         """Publish service health status."""
         self._publish(
@@ -272,6 +291,7 @@ class MqttPublisher:
             ("pv_power", "solar/pv_power", "Optimizer PV Power", "kW", "mdi:solar-power"),
             ("feed_in", "solar/feed_in", "Optimizer Feed-in", "kW", "mdi:transmission-tower-export"),
             ("last_run", "service/last_run", "Optimizer Last Run", None, "mdi:clock-outline"),
+            ("export_rate_schedule", "rates/export/schedule", "Export Rate Schedule", None, "mdi:chart-bar"),
         ]
 
         for object_id, state_suffix, name, unit, icon in sensors:

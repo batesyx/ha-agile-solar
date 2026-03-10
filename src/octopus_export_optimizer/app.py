@@ -338,6 +338,17 @@ class Application:
 
         self.mqtt_publisher.publish_rates(current_export, best_upcoming, current_import)
 
+        # Publish today's full rate schedule for charting
+        day_start = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
+        day_end = datetime(today.year, today.month, today.day, 23, 59, 59, tzinfo=timezone.utc)
+        today_export_rates = self.tariff_repo.get_export_rates(day_start, day_end)
+        today_import_rates = self.tariff_repo.get_import_rates(day_start, day_end)
+        self.mqtt_publisher.publish_rate_schedule(
+            today_export_rates,
+            today_import_rates if today_import_rates else None,
+            now,
+        )
+
         rec = self.recommendation_repo.get_latest()
         self.mqtt_publisher.publish_recommendation(rec)
 

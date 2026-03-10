@@ -75,6 +75,38 @@ class PayloadBuilder:
         }
 
     @staticmethod
+    def rate_schedule_payload(
+        slots: list[TariffSlot],
+        current_time: datetime | None = None,
+    ) -> str:
+        """Build a JSON payload with today's rate schedule for charting.
+
+        Publishes as a JSON object with 'rates' array and metadata,
+        suitable for HA sensor attributes + ApexCharts data_generator.
+        """
+        if not slots:
+            return json.dumps({"rates": [], "count": 0})
+
+        rates = []
+        for slot in sorted(slots, key=lambda s: s.interval_start):
+            rates.append({
+                "start": slot.interval_start.strftime("%H:%M"),
+                "end": slot.interval_end.strftime("%H:%M"),
+                "rate": round(slot.rate_inc_vat_pence, 2),
+                "start_iso": slot.interval_start.isoformat(),
+            })
+
+        return json.dumps({
+            "rates": rates,
+            "count": len(rates),
+            "min_rate": round(min(s.rate_inc_vat_pence for s in slots), 2),
+            "max_rate": round(max(s.rate_inc_vat_pence for s in slots), 2),
+            "avg_rate": round(
+                sum(s.rate_inc_vat_pence for s in slots) / len(slots), 2
+            ),
+        })
+
+    @staticmethod
     def service_status_payload(online: bool) -> str:
         return "online" if online else "offline"
 
