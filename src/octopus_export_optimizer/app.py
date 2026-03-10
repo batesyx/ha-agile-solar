@@ -243,13 +243,24 @@ class Application:
         now = datetime.now(timezone.utc)
         # Look back 72 hours to catch delayed meter data
         start, end = self.aggregator.rolling_boundaries(3, now)
+
+        # Export revenue
         meters = self.meter_repo.get_export_intervals(start, end)
         tariffs = self.tariff_repo.get_export_rates(start, end)
-
         intervals = self.revenue_calculator.calculate_batch(meters, tariffs)
         if intervals:
             self.revenue_repo.upsert_intervals(intervals)
-            logger.info("Calculated revenue for %d intervals", len(intervals))
+            logger.info("Calculated revenue for %d export intervals", len(intervals))
+
+        # Import cost
+        import_meters = self.meter_repo.get_import_intervals(start, end)
+        import_tariffs = self.tariff_repo.get_import_rates(start, end)
+        import_intervals = self.revenue_calculator.calculate_import_cost_batch(
+            import_meters, import_tariffs
+        )
+        if import_intervals:
+            self.revenue_repo.upsert_import_cost_intervals(import_intervals)
+            logger.info("Calculated import cost for %d intervals", len(import_intervals))
 
     def job_generate_recommendation(self) -> None:
         """Generate a recommendation from current state."""
@@ -263,6 +274,23 @@ class Application:
         current_import = self.tariff_repo.get_current_import_rate(now)
         ha_state = self.ha_state_repo.get_latest()
         remaining_gen = self.solar_profile.remaining_generation_factor(now)
+
+        # Compute tariff data age for freshness check
+        tariff_data_age: float | None = None
+        latest_slot = self.tariff_repo.get_latest_export_slot()
+        if latest_slot:
+            tariff_data_age = (now - latest_slot.fetched_at).total_seconds() / 60.0
+
+        # HA state freshness check — treat stale data as unavailable
+        freshness_limit = self.settings.thresholds.data_freshness_limit_minutes
+        if ha_state:
+            ha_age = (now - ha_state.timestamp).total_seconds() / 60.0
+            if ha_age > freshness_limit:
+                logger.warning(
+                    "HA state is %.0f minutes old (limit %.0f), treating as unavailable",
+                    ha_age, freshness_limit,
+                )
+                ha_state = None
 
         # Calculate dynamic evening reserve if controller is active
         reserve: float | None = None
@@ -289,6 +317,7 @@ class Application:
             ha_state=ha_state,
             remaining_generation=remaining_gen,
             minimum_soc_override=reserve,
+            tariff_data_age_minutes=tariff_data_age,
         )
         recommendation = self.engine.evaluate(snapshot, upcoming_12h)
         self.recommendation_repo.save(recommendation, snapshot)
@@ -316,8 +345,10 @@ class Application:
         # Today
         day_start, day_end = self.aggregator.day_boundaries(today)
         day_intervals = self.revenue_repo.get_intervals(day_start, day_end)
+        day_import = self.revenue_repo.get_import_cost_intervals(day_start, day_end)
         day_summary = self.aggregator.aggregate(
-            day_intervals, "day", today.isoformat()
+            day_intervals, "day", today.isoformat(),
+            import_cost_intervals=day_import,
         )
         self.revenue_repo.upsert_summary(day_summary)
 
@@ -326,9 +357,11 @@ class Application:
             today.year, today.month
         )
         month_intervals = self.revenue_repo.get_intervals(month_start, month_end)
+        month_import = self.revenue_repo.get_import_cost_intervals(month_start, month_end)
         month_key = f"{today.year}-{today.month:02d}"
         month_summary = self.aggregator.aggregate(
-            month_intervals, "month", month_key
+            month_intervals, "month", month_key,
+            import_cost_intervals=month_import,
         )
         self.revenue_repo.upsert_summary(month_summary)
 
@@ -336,8 +369,10 @@ class Application:
         for days, period_type in [(7, "rolling_7d"), (30, "rolling_30d")]:
             r_start, r_end = self.aggregator.rolling_boundaries(days, now)
             r_intervals = self.revenue_repo.get_intervals(r_start, r_end)
+            r_import = self.revenue_repo.get_import_cost_intervals(r_start, r_end)
             r_summary = self.aggregator.aggregate(
-                r_intervals, period_type, f"last_{days}d"
+                r_intervals, period_type, f"last_{days}d",
+                import_cost_intervals=r_import,
             )
             self.revenue_repo.upsert_summary(r_summary)
 
@@ -395,8 +430,10 @@ class Application:
             day_start = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
             day_snapshots = self.ha_state_repo.get_by_range(day_start, now)
             day_tariffs = self.tariff_repo.get_export_rates(day_start, now)
+            day_import_tariffs = self.tariff_repo.get_import_rates(day_start, now)
             estimate = estimate_revenue(
                 day_snapshots, day_tariffs, self.settings.thresholds, now,
+                import_tariff_slots=day_import_tariffs if day_import_tariffs else None,
             )
             if estimate.export_kwh > 0:
                 from octopus_export_optimizer.models.revenue import RevenueSummary
@@ -416,6 +453,11 @@ class Application:
                     intervals_above_flat=0,
                     total_intervals=0,
                     calculated_at=now,
+                    import_cost_pence=estimate.import_cost_pence,
+                    total_import_kwh=estimate.import_kwh,
+                    net_revenue_pence=estimate.net_revenue_pence,
+                    charging_opportunity_cost_pence=estimate.charging_opportunity_cost_pence,
+                    true_profit_pence=estimate.true_profit_pence,
                 )
                 today_is_estimated = True
                 logger.debug(
@@ -438,6 +480,20 @@ class Application:
         self.mqtt_publisher.publish_ha_state(ha_state)
 
         self.mqtt_publisher.publish_service_status(now)
+
+        # Publish data freshness / health
+        latest_slot = self.tariff_repo.get_latest_export_slot()
+        tariff_age = (
+            (now - latest_slot.fetched_at).total_seconds() / 60.0
+            if latest_slot else None
+        )
+        ha_age = (
+            (now - ha_state.timestamp).total_seconds() / 60.0
+            if ha_state else None
+        )
+        self.mqtt_publisher.publish_data_freshness(
+            tariff_age, ha_age, self.settings.thresholds.data_freshness_limit_minutes,
+        )
 
         # Publish inverter control state
         if self.inverter_controller:

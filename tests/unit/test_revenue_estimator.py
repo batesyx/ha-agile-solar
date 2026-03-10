@@ -2,6 +2,8 @@
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from octopus_export_optimizer.calculations.revenue_estimator import (
     RevenueEstimate,
     estimate_revenue,
@@ -127,3 +129,213 @@ class TestRevenueEstimator:
         assert result.flat_revenue_pence > 0
         # Check flat rate was used (not the default 12p)
         assert result.flat_revenue_pence > result.agile_revenue_pence  # 15p > 10p
+
+
+def _make_full_snapshot(
+    hour: int,
+    minute: int,
+    feed_in_kw: float = 0.0,
+    load_power_kw: float = 1.0,
+    pv_power_kw: float = 0.0,
+    battery_charge_kw: float = 0.0,
+    battery_discharge_kw: float = 0.0,
+) -> HaStateSnapshot:
+    return HaStateSnapshot(
+        timestamp=datetime(2026, 3, 10, hour, minute, tzinfo=timezone.utc),
+        battery_soc_pct=50.0,
+        pv_power_kw=pv_power_kw,
+        feed_in_kw=feed_in_kw,
+        load_power_kw=load_power_kw,
+        grid_consumption_kw=0.0,
+        battery_charge_kw=battery_charge_kw,
+        battery_discharge_kw=battery_discharge_kw,
+    )
+
+
+def _make_import_tariff(hour: int, rate: float = 7.5) -> TariffSlot:
+    start = datetime(2026, 3, 10, hour, 0, tzinfo=timezone.utc)
+    return TariffSlot(
+        interval_start=start,
+        interval_end=start + timedelta(minutes=30),
+        rate_inc_vat_pence=rate,
+        tariff_type="import",
+        product_code="AGILE-FLEX",
+        provenance="actual",
+        fetched_at=start,
+    )
+
+
+class TestImportCostEstimation:
+    def test_grid_consumption_estimated(self):
+        """Load 2kW, no PV, no battery → 2kW from grid."""
+        snapshots = [
+            _make_full_snapshot(10, 0, load_power_kw=2.0),
+            _make_full_snapshot(10, 5, load_power_kw=2.0),
+        ]
+        import_tariffs = [_make_import_tariff(10, rate=10.0)]
+        result = estimate_revenue(
+            snapshots, [_make_tariff(10)], _thresholds(),
+            datetime(2026, 3, 10, tzinfo=timezone.utc),
+            import_tariff_slots=import_tariffs,
+        )
+        # 2kW × 5/60h = 0.1667 kWh × 10p = 1.667p
+        assert result.import_kwh > 0
+        assert abs(result.import_kwh - 0.1667) < 0.001
+        assert abs(result.import_cost_pence - 1.667) < 0.01
+
+    def test_pv_covers_load_no_import(self):
+        """Load 1kW, PV 3kW → no grid import."""
+        snapshots = [
+            _make_full_snapshot(10, 0, load_power_kw=1.0, pv_power_kw=3.0),
+            _make_full_snapshot(10, 5, load_power_kw=1.0, pv_power_kw=3.0),
+        ]
+        import_tariffs = [_make_import_tariff(10)]
+        result = estimate_revenue(
+            snapshots, [_make_tariff(10)], _thresholds(),
+            datetime(2026, 3, 10, tzinfo=timezone.utc),
+            import_tariff_slots=import_tariffs,
+        )
+        assert result.import_kwh == 0.0
+        assert result.import_cost_pence == 0.0
+
+    def test_grid_charging_included_in_import(self):
+        """Overnight grid charging: load 1kW + battery_charge 3kW, no PV → 4kW from grid."""
+        snapshots = [
+            _make_full_snapshot(2, 0, load_power_kw=1.0, battery_charge_kw=3.0),
+            _make_full_snapshot(2, 5, load_power_kw=1.0, battery_charge_kw=3.0),
+        ]
+        import_tariffs = [
+            TariffSlot(
+                interval_start=datetime(2026, 3, 10, 2, 0, tzinfo=timezone.utc),
+                interval_end=datetime(2026, 3, 10, 2, 30, tzinfo=timezone.utc),
+                rate_inc_vat_pence=7.5,
+                tariff_type="import",
+                product_code="AGILE-FLEX",
+                provenance="actual",
+                fetched_at=datetime(2026, 3, 10, 2, 0, tzinfo=timezone.utc),
+            )
+        ]
+        export_tariffs = [
+            TariffSlot(
+                interval_start=datetime(2026, 3, 10, 2, 0, tzinfo=timezone.utc),
+                interval_end=datetime(2026, 3, 10, 2, 30, tzinfo=timezone.utc),
+                rate_inc_vat_pence=5.0,
+                tariff_type="export",
+                product_code="AGILE",
+                provenance="actual",
+                fetched_at=datetime(2026, 3, 10, 2, 0, tzinfo=timezone.utc),
+            )
+        ]
+        result = estimate_revenue(
+            snapshots, export_tariffs, _thresholds(),
+            datetime(2026, 3, 10, tzinfo=timezone.utc),
+            import_tariff_slots=import_tariffs,
+        )
+        # 4kW × 5/60h = 0.3333 kWh × 7.5p = 2.5p
+        assert abs(result.import_kwh - 0.3333) < 0.001
+        assert abs(result.import_cost_pence - 2.5) < 0.01
+
+    def test_no_import_tariffs_skips_import_cost(self):
+        """Without import tariffs, import cost stays at zero."""
+        snapshots = [
+            _make_full_snapshot(10, 0, load_power_kw=2.0),
+            _make_full_snapshot(10, 5, load_power_kw=2.0),
+        ]
+        result = estimate_revenue(
+            snapshots, [_make_tariff(10)], _thresholds(),
+            datetime(2026, 3, 10, tzinfo=timezone.utc),
+        )
+        assert result.import_kwh == 0.0
+        assert result.import_cost_pence == 0.0
+
+
+class TestChargingOpportunityCost:
+    def test_solar_charging_has_opportunity_cost(self):
+        """Battery charging 2kW from 3kW PV at 10p/kWh export rate."""
+        snapshots = [
+            _make_full_snapshot(
+                10, 0, pv_power_kw=3.0, battery_charge_kw=2.0, feed_in_kw=1.0,
+            ),
+            _make_full_snapshot(
+                10, 5, pv_power_kw=3.0, battery_charge_kw=2.0, feed_in_kw=1.0,
+            ),
+        ]
+        tariffs = [_make_tariff(10)]  # 10p/kWh export
+        result = estimate_revenue(
+            snapshots, tariffs, _thresholds(),
+            datetime(2026, 3, 10, tzinfo=timezone.utc),
+        )
+        # min(battery_charge=2, pv=3) = 2kW × 5/60h = 0.1667 kWh × 10p = 1.667p
+        assert abs(result.charging_opportunity_cost_pence - 1.667) < 0.01
+
+    def test_no_pv_no_opportunity_cost(self):
+        """Battery charging from grid (no PV) → zero opportunity cost."""
+        snapshots = [
+            _make_full_snapshot(
+                10, 0, pv_power_kw=0.0, battery_charge_kw=2.0,
+            ),
+            _make_full_snapshot(
+                10, 5, pv_power_kw=0.0, battery_charge_kw=2.0,
+            ),
+        ]
+        tariffs = [_make_tariff(10)]
+        result = estimate_revenue(
+            snapshots, tariffs, _thresholds(),
+            datetime(2026, 3, 10, tzinfo=timezone.utc),
+        )
+        assert result.charging_opportunity_cost_pence == 0.0
+
+    def test_zero_export_rate_no_opportunity_cost(self):
+        """Even with solar charging, zero export rate → no opportunity cost."""
+        zero_rate_tariff = TariffSlot(
+            interval_start=datetime(2026, 3, 10, 10, 0, tzinfo=timezone.utc),
+            interval_end=datetime(2026, 3, 10, 10, 30, tzinfo=timezone.utc),
+            rate_inc_vat_pence=0.0,
+            tariff_type="export",
+            product_code="AGILE",
+            provenance="actual",
+            fetched_at=datetime(2026, 3, 10, 10, 0, tzinfo=timezone.utc),
+        )
+        snapshots = [
+            _make_full_snapshot(
+                10, 0, pv_power_kw=3.0, battery_charge_kw=2.0,
+            ),
+            _make_full_snapshot(
+                10, 5, pv_power_kw=3.0, battery_charge_kw=2.0,
+            ),
+        ]
+        result = estimate_revenue(
+            snapshots, [zero_rate_tariff], _thresholds(),
+            datetime(2026, 3, 10, tzinfo=timezone.utc),
+        )
+        assert result.charging_opportunity_cost_pence == 0.0
+
+    def test_net_revenue_and_true_profit(self):
+        """True profit = agile_revenue - import_cost - opportunity_cost."""
+        snapshots = [
+            _make_full_snapshot(
+                10, 0, feed_in_kw=2.0, load_power_kw=1.0,
+                pv_power_kw=3.0, battery_charge_kw=1.0,
+            ),
+            _make_full_snapshot(
+                10, 5, feed_in_kw=2.0, load_power_kw=1.0,
+                pv_power_kw=3.0, battery_charge_kw=1.0,
+            ),
+        ]
+        export_tariffs = [_make_tariff(10)]  # 10p/kWh
+        import_tariffs = [_make_import_tariff(10, rate=7.5)]
+
+        result = estimate_revenue(
+            snapshots, export_tariffs, _thresholds(),
+            datetime(2026, 3, 10, tzinfo=timezone.utc),
+            import_tariff_slots=import_tariffs,
+        )
+        # Export: 2kW × 5/60h = 0.1667 kWh × 10p = 1.667p
+        # Import: (load(1) + bat_chg(1)) - pv(3) - bat_dis(0) = 0 → clamped to 0
+        # Opportunity: min(bat_chg=1, pv=3) = 1kW × 5/60h = 0.0833 × 10p = 0.833p
+        assert result.net_revenue_pence == pytest.approx(
+            result.agile_revenue_pence - result.import_cost_pence, abs=0.01
+        )
+        assert result.true_profit_pence == pytest.approx(
+            result.net_revenue_pence - result.charging_opportunity_cost_pence, abs=0.01
+        )

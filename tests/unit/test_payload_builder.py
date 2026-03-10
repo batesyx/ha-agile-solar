@@ -11,13 +11,12 @@ from tests.factories import make_tariff_slot
 class TestRatePayload:
     def test_with_slot(self):
         slot = make_tariff_slot(rate_pence=22.5)
-        payload = json.loads(PayloadBuilder.rate_payload(slot))
-        assert payload["rate"] == 22.5
-        assert payload["valid_from"] is not None
+        payload = PayloadBuilder.rate_payload(slot)
+        assert payload == "22.50"
 
     def test_none_slot(self):
-        payload = json.loads(PayloadBuilder.rate_payload(None))
-        assert payload["rate"] is None
+        payload = PayloadBuilder.rate_payload(None)
+        assert payload == ""
 
 
 class TestRecommendationPayloads:

@@ -28,12 +28,22 @@ class RevenueEstimate:
     uplift_pence: float
     snapshot_count: int
 
+    # Import cost (Phase 2B)
+    import_kwh: float = 0.0
+    import_cost_pence: float = 0.0
+    net_revenue_pence: float = 0.0  # agile_revenue - import_cost
+
+    # Charging opportunity cost (Phase 3)
+    charging_opportunity_cost_pence: float = 0.0
+    true_profit_pence: float = 0.0  # net_revenue - opportunity_cost
+
 
 def estimate_revenue(
     snapshots: list[HaStateSnapshot],
     tariff_slots: list[TariffSlot],
     thresholds: ThresholdSettings,
     day: datetime,
+    import_tariff_slots: list[TariffSlot] | None = None,
 ) -> RevenueEstimate:
     """Estimate revenue from HA state snapshots and tariff rates.
 
@@ -41,24 +51,26 @@ def estimate_revenue(
         energy_kwh = feed_in_kw × hours_between_snapshots
         revenue = energy_kwh × agile_rate_for_that_period
 
+    Also estimates import cost (grid consumption) and charging
+    opportunity cost (solar used to charge battery instead of export).
+
     Args:
         snapshots: Today's HA state snapshots, ordered by timestamp.
         tariff_slots: Today's export tariff slots.
         thresholds: Settings containing flat rate config.
         day: The date being estimated (for flat rate lookup).
+        import_tariff_slots: Today's import tariff slots (optional).
     """
     if len(snapshots) < 2:
         return RevenueEstimate(0.0, 0.0, 0.0, 0.0, len(snapshots))
-
-    # Build a lookup: interval_start → rate
-    rate_map: dict[datetime, float] = {}
-    for slot in tariff_slots:
-        rate_map[slot.interval_start] = slot.rate_inc_vat_pence
 
     flat_rate = thresholds.get_flat_rate_for_date(day.date() if isinstance(day, datetime) else day)
 
     total_kwh = 0.0
     total_agile_pence = 0.0
+    total_import_kwh = 0.0
+    total_import_cost = 0.0
+    total_opportunity_cost = 0.0
 
     for i in range(1, len(snapshots)):
         prev = snapshots[i - 1]
@@ -67,30 +79,68 @@ def estimate_revenue(
         # Time gap in hours
         dt_seconds = (curr.timestamp - prev.timestamp).total_seconds()
         if dt_seconds <= 0 or dt_seconds > 600:
-            # Skip gaps > 10 minutes (service was down) or negative
             continue
 
         dt_hours = dt_seconds / 3600.0
 
-        # Average feed-in power over the interval
+        # Find the export rate for this timestamp's half-hour slot
+        export_rate = _find_rate(prev.timestamp, tariff_slots)
+
+        # --- Export revenue ---
         feed_in_prev = max(0.0, prev.feed_in_kw or 0.0)
         feed_in_curr = max(0.0, curr.feed_in_kw or 0.0)
         avg_feed_in = (feed_in_prev + feed_in_curr) / 2.0
+        export_kwh = avg_feed_in * dt_hours
 
-        energy_kwh = avg_feed_in * dt_hours
+        if export_kwh > 0 and export_rate is not None:
+            total_kwh += export_kwh
+            total_agile_pence += export_kwh * export_rate
 
-        if energy_kwh <= 0:
-            continue
+        # --- Import cost ---
+        if import_tariff_slots:
+            import_rate = _find_rate(prev.timestamp, import_tariff_slots)
+            if import_rate is not None:
+                # Energy balance: grid_import = consumption - generation
+                # consumption = load + battery_charge
+                # generation = pv + battery_discharge
+                load_prev = max(0.0, prev.load_power_kw or 0.0)
+                load_curr = max(0.0, curr.load_power_kw or 0.0)
+                pv_prev = max(0.0, prev.pv_power_kw or 0.0)
+                pv_curr = max(0.0, curr.pv_power_kw or 0.0)
+                bat_dis_prev = max(0.0, prev.battery_discharge_kw or 0.0)
+                bat_dis_curr = max(0.0, curr.battery_discharge_kw or 0.0)
+                bat_chg_prev = max(0.0, prev.battery_charge_kw or 0.0)
+                bat_chg_curr = max(0.0, curr.battery_charge_kw or 0.0)
 
-        # Find the Agile rate for this timestamp's half-hour slot
-        rate = _find_rate(prev.timestamp, tariff_slots)
-        if rate is None:
-            continue
+                grid_prev = max(0.0, load_prev + bat_chg_prev - pv_prev - bat_dis_prev)
+                grid_curr = max(0.0, load_curr + bat_chg_curr - pv_curr - bat_dis_curr)
+                avg_grid = (grid_prev + grid_curr) / 2.0
+                import_kwh = avg_grid * dt_hours
 
-        total_kwh += energy_kwh
-        total_agile_pence += energy_kwh * rate
+                if import_kwh > 0:
+                    total_import_kwh += import_kwh
+                    total_import_cost += import_kwh * import_rate
+
+        # --- Charging opportunity cost (Phase 3) ---
+        if export_rate is not None and export_rate > 0:
+            bat_chg_prev = max(0.0, prev.battery_charge_kw or 0.0)
+            bat_chg_curr = max(0.0, curr.battery_charge_kw or 0.0)
+            pv_prev = max(0.0, prev.pv_power_kw or 0.0)
+            pv_curr = max(0.0, curr.pv_power_kw or 0.0)
+
+            # Solar charging = min(battery_charge, pv_power) — heuristic:
+            # solar charges battery first before grid
+            solar_chg_prev = min(bat_chg_prev, pv_prev)
+            solar_chg_curr = min(bat_chg_curr, pv_curr)
+            avg_solar_chg = (solar_chg_prev + solar_chg_curr) / 2.0
+            solar_chg_kwh = avg_solar_chg * dt_hours
+
+            if solar_chg_kwh > 0:
+                total_opportunity_cost += solar_chg_kwh * export_rate
 
     total_flat_pence = total_kwh * flat_rate
+    net_rev = total_agile_pence - total_import_cost
+    true_profit = net_rev - total_opportunity_cost
 
     return RevenueEstimate(
         export_kwh=round(total_kwh, 4),
@@ -98,6 +148,11 @@ def estimate_revenue(
         flat_revenue_pence=round(total_flat_pence, 4),
         uplift_pence=round(total_agile_pence - total_flat_pence, 4),
         snapshot_count=len(snapshots),
+        import_kwh=round(total_import_kwh, 4),
+        import_cost_pence=round(total_import_cost, 4),
+        net_revenue_pence=round(net_rev, 4),
+        charging_opportunity_cost_pence=round(total_opportunity_cost, 4),
+        true_profit_pence=round(true_profit, 4),
     )
 
 

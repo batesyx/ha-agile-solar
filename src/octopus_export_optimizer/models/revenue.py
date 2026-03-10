@@ -30,6 +30,19 @@ class RevenueInterval(BaseModel):
         return self.uplift_pence > 0
 
 
+class ImportCostInterval(BaseModel):
+    """Import cost for a single half-hour interval.
+
+    Joins metered import data with the actual import tariff rate.
+    """
+
+    interval_start: datetime  # UTC
+    import_kwh: float
+    import_rate_pence: float
+    import_cost_pence: float
+    calculated_at: datetime
+
+
 class RevenueSummary(BaseModel):
     """Aggregated revenue metrics for a time period."""
 
@@ -44,6 +57,15 @@ class RevenueSummary(BaseModel):
     total_intervals: int
     calculated_at: datetime
 
+    # Import cost fields (Phase 2A)
+    import_cost_pence: float = 0.0
+    total_import_kwh: float = 0.0
+    net_revenue_pence: float = 0.0  # agile_revenue - import_cost
+
+    # Charging opportunity cost (Phase 3)
+    charging_opportunity_cost_pence: float = 0.0
+    true_profit_pence: float = 0.0  # net_revenue - opportunity_cost
+
     @property
     def agile_revenue_gbp(self) -> float:
         return self.agile_revenue_pence / 100.0
@@ -55,3 +77,11 @@ class RevenueSummary(BaseModel):
     @property
     def uplift_gbp(self) -> float:
         return self.uplift_pence / 100.0
+
+    @property
+    def net_revenue_gbp(self) -> float:
+        return self.net_revenue_pence / 100.0
+
+    @property
+    def true_profit_gbp(self) -> float:
+        return self.true_profit_pence / 100.0

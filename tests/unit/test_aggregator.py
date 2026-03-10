@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from octopus_export_optimizer.calculations.aggregator import Aggregator
-from octopus_export_optimizer.models.revenue import RevenueInterval
+from octopus_export_optimizer.models.revenue import ImportCostInterval, RevenueInterval
 
 
 @pytest.fixture
@@ -69,3 +69,32 @@ class TestDayBoundaries:
         # In summer (BST), midnight London = 23:00 UTC previous day
         start, end = aggregator.day_boundaries(date(2026, 7, 15))
         assert start.hour == 23
+
+
+class TestAggregateWithImportCosts:
+    def test_net_revenue_with_import_costs(self, aggregator):
+        intervals = [
+            make_revenue_interval(12, 2.0, 20.0),  # 40p agile
+        ]
+        import_costs = [
+            ImportCostInterval(
+                interval_start=datetime(2026, 3, 9, 12, 0, tzinfo=timezone.utc),
+                import_kwh=0.5,
+                import_rate_pence=7.5,
+                import_cost_pence=3.75,
+                calculated_at=datetime.now(timezone.utc),
+            ),
+        ]
+        summary = aggregator.aggregate(
+            intervals, "day", "2026-03-09",
+            import_cost_intervals=import_costs,
+        )
+        assert summary.import_cost_pence == pytest.approx(3.75)
+        assert summary.total_import_kwh == pytest.approx(0.5)
+        assert summary.net_revenue_pence == pytest.approx(40.0 - 3.75)
+
+    def test_no_import_costs_defaults_to_zero(self, aggregator):
+        intervals = [make_revenue_interval(12, 1.0, 10.0)]
+        summary = aggregator.aggregate(intervals, "day", "2026-03-09")
+        assert summary.import_cost_pence == 0.0
+        assert summary.net_revenue_pence == pytest.approx(10.0)

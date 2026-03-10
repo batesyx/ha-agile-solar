@@ -5,7 +5,11 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from octopus_export_optimizer.models.revenue import RevenueInterval, RevenueSummary
+from octopus_export_optimizer.models.revenue import (
+    ImportCostInterval,
+    RevenueInterval,
+    RevenueSummary,
+)
 
 
 class Aggregator:
@@ -19,11 +23,23 @@ class Aggregator:
         intervals: list[RevenueInterval],
         period_type: str,
         period_key: str,
+        import_cost_intervals: list[ImportCostInterval] | None = None,
     ) -> RevenueSummary:
-        """Aggregate a list of revenue intervals into a summary."""
+        """Aggregate a list of revenue intervals into a summary.
+
+        Optionally includes import cost intervals for net revenue
+        and true profit calculation.
+        """
         now = datetime.now(timezone.utc)
 
         if not intervals:
+            # Still aggregate import costs even without export data
+            import_cost = 0.0
+            import_kwh = 0.0
+            if import_cost_intervals:
+                import_cost = sum(i.import_cost_pence for i in import_cost_intervals)
+                import_kwh = sum(i.import_kwh for i in import_cost_intervals)
+
             return RevenueSummary(
                 period_type=period_type,
                 period_key=period_key,
@@ -35,6 +51,9 @@ class Aggregator:
                 intervals_above_flat=0,
                 total_intervals=0,
                 calculated_at=now,
+                import_cost_pence=round(import_cost, 4),
+                total_import_kwh=round(import_kwh, 4),
+                net_revenue_pence=round(-import_cost, 4),
             )
 
         total_kwh = sum(i.export_kwh for i in intervals)
@@ -42,6 +61,15 @@ class Aggregator:
         flat_rev = sum(i.flat_revenue_pence for i in intervals)
         above_flat = sum(1 for i in intervals if i.is_uplift_positive)
         avg_rate = agile_rev / total_kwh if total_kwh > 0 else 0.0
+
+        # Import cost aggregation
+        import_cost = 0.0
+        import_kwh = 0.0
+        if import_cost_intervals:
+            import_cost = sum(i.import_cost_pence for i in import_cost_intervals)
+            import_kwh = sum(i.import_kwh for i in import_cost_intervals)
+
+        net_rev = agile_rev - import_cost
 
         return RevenueSummary(
             period_type=period_type,
@@ -54,6 +82,9 @@ class Aggregator:
             intervals_above_flat=above_flat,
             total_intervals=len(intervals),
             calculated_at=now,
+            import_cost_pence=round(import_cost, 4),
+            total_import_kwh=round(import_kwh, 4),
+            net_revenue_pence=round(net_rev, 4),
         )
 
     def day_boundaries(self, target_date: date) -> tuple[datetime, datetime]:

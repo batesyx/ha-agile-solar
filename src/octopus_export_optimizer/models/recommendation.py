@@ -33,6 +33,7 @@ class RecommendationInputSnapshot(BaseModel):
     remaining_generation_heuristic: float | None = None
     exportable_battery_kwh: float | None = None
     battery_headroom_kwh: float | None = None
+    tariff_data_age_minutes: float | None = None
 
 
 class Recommendation(BaseModel):

@@ -7,13 +7,18 @@ import sqlite3
 import threading
 from pathlib import Path
 
-from octopus_export_optimizer.storage.migrations import v001_initial, v002_inverter_commands
+from octopus_export_optimizer.storage.migrations import (
+    v001_initial,
+    v002_inverter_commands,
+    v003_freshness_and_import_costs,
+)
 
 logger = logging.getLogger(__name__)
 
 MIGRATIONS = [
     (1, v001_initial),
     (2, v002_inverter_commands),
+    (3, v003_freshness_and_import_costs),
 ]
 
 

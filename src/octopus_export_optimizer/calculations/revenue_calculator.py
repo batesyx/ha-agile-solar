@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from octopus_export_optimizer.config.settings import ThresholdSettings
 from octopus_export_optimizer.models.meter import MeterInterval
-from octopus_export_optimizer.models.revenue import RevenueInterval
+from octopus_export_optimizer.models.revenue import ImportCostInterval, RevenueInterval
 from octopus_export_optimizer.models.tariff import TariffSlot
 
 
@@ -71,5 +71,36 @@ class RevenueCalculator:
             if tariff is None:
                 continue
             results.append(self.calculate_interval(meter, tariff, now=now))
+
+        return results
+
+    def calculate_import_cost_batch(
+        self,
+        meters: list[MeterInterval],
+        tariffs: list[TariffSlot],
+    ) -> list[ImportCostInterval]:
+        """Calculate import cost for a batch of intervals.
+
+        Joins import meters and import tariffs by interval_start.
+        Intervals without a matching tariff are skipped.
+        """
+        tariff_map = {t.interval_start: t for t in tariffs}
+        now = datetime.now(timezone.utc)
+        results = []
+
+        for meter in meters:
+            tariff = tariff_map.get(meter.interval_start)
+            if tariff is None:
+                continue
+            cost = meter.kwh * tariff.rate_inc_vat_pence
+            results.append(
+                ImportCostInterval(
+                    interval_start=meter.interval_start,
+                    import_kwh=meter.kwh,
+                    import_rate_pence=tariff.rate_inc_vat_pence,
+                    import_cost_pence=round(cost, 4),
+                    calculated_at=now,
+                )
+            )
 
         return results

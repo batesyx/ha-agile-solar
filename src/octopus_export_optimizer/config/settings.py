@@ -105,6 +105,7 @@ class InverterControlSettings(BaseModel):
     cheap_rate_end_hour: float = 5.5  # 05:30
     high_export_threshold_for_full_charge: float = 20.0  # p/kWh
     default_evening_load_kw: float = 1.2
+    fallback_on_insufficient_data: str = "self_use"  # "self_use" or "none"
 
 
 class HaEntityIds(BaseModel):

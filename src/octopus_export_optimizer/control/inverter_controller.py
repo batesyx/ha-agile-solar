@@ -89,16 +89,22 @@ class InverterController:
         if not self._auto_control_enabled:
             return None
 
-        # Safety: never act on insufficient data
+        # Handle insufficient data: fallback to safe mode or no-op
         if recommendation.state == RecommendationState.INSUFFICIENT_DATA:
-            return None
-
-        # Map recommendation to target work mode
-        target_mode = map_recommendation_to_mode(
-            RecommendationState(recommendation.state)
-        )
-        if target_mode is None:
-            return None
+            if self.settings.fallback_on_insufficient_data == "self_use":
+                target_mode = WorkMode.SELF_USE
+                logger.info(
+                    "Insufficient data — falling back to Self Use (safe mode)"
+                )
+            else:
+                return None
+        else:
+            # Map recommendation to target work mode
+            target_mode = map_recommendation_to_mode(
+                RecommendationState(recommendation.state)
+            )
+            if target_mode is None:
+                return None
 
         target_max_soc = recommendation.target_max_soc
         if target_max_soc is not None:

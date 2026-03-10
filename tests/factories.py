@@ -75,6 +75,7 @@ def make_recommendation_snapshot(
     upcoming_rates_count: int = 8,
     remaining_generation: float | None = 0.5,
     timestamp: datetime | None = None,
+    tariff_data_age_minutes: float | None = None,
 ) -> RecommendationInputSnapshot:
     """Create a RecommendationInputSnapshot with sensible defaults."""
     now = timestamp or datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc)
@@ -92,4 +93,5 @@ def make_recommendation_snapshot(
         remaining_generation_heuristic=remaining_generation,
         exportable_battery_kwh=5.0 if battery_soc_pct else None,
         battery_headroom_kwh=3.0 if battery_soc_pct else None,
+        tariff_data_age_minutes=tariff_data_age_minutes,
     )

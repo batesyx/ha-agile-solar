@@ -80,6 +80,20 @@ class InsufficientDataRule(Rule):
                 "Look-ahead window is empty.",
             )
 
+        if (
+            snapshot.tariff_data_age_minutes is not None
+            and snapshot.tariff_data_age_minutes
+            > self.thresholds.data_freshness_limit_minutes
+        ):
+            return self._make_recommendation(
+                snapshot,
+                RecommendationState.INSUFFICIENT_DATA,
+                ReasonCode.STALE_TARIFF_DATA,
+                f"Tariff data is {snapshot.tariff_data_age_minutes:.0f} minutes old "
+                f"(limit: {self.thresholds.data_freshness_limit_minutes:.0f} min). "
+                f"Internet may be down — using stale rates is unsafe.",
+            )
+
         return None
 
 

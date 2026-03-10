@@ -57,10 +57,26 @@ class TestSafetyLayers:
         result = controller.execute(_make_recommendation())
         assert result is None
 
-    def test_insufficient_data_never_acted_on(self, controller):
+    def test_insufficient_data_falls_back_to_self_use(self, controller):
+        """With default fallback='self_use', INSUFFICIENT_DATA sends Self Use."""
         controller.set_auto_control(True)
         rec = _make_recommendation(state=RecommendationState.INSUFFICIENT_DATA)
         result = controller.execute(rec)
+        assert result is not None
+        assert result.new_mode == WorkMode.SELF_USE.value
+        assert result.success is True
+
+    def test_insufficient_data_noop_when_fallback_none(self):
+        """With fallback='none', INSUFFICIENT_DATA does nothing."""
+        ha = HaSettings(url="http://localhost:8123", token="test-token")
+        settings = InverterControlSettings(
+            enabled=True, fallback_on_insufficient_data="none",
+        )
+        ctrl = InverterController(ha, settings, MagicMock())
+        ctrl._client = MagicMock()
+        ctrl.set_auto_control(True)
+        rec = _make_recommendation(state=RecommendationState.INSUFFICIENT_DATA)
+        result = ctrl.execute(rec)
         assert result is None
 
     def test_rate_limited(self, controller):

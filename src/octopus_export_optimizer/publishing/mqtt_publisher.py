@@ -234,6 +234,39 @@ class MqttPublisher:
             retain=True,
         )
 
+    def publish_data_freshness(
+        self,
+        tariff_age_minutes: float | None,
+        ha_state_age_minutes: float | None,
+        freshness_limit: float,
+    ) -> None:
+        """Publish data freshness metrics for health monitoring."""
+        def _status(age: float | None) -> str:
+            if age is None:
+                return "UNAVAILABLE"
+            return "OK" if age <= freshness_limit else "STALE"
+
+        self._publish(
+            f"{self.prefix}/health/tariff_age",
+            f"{tariff_age_minutes:.0f}" if tariff_age_minutes is not None else "",
+            retain=True,
+        )
+        self._publish(
+            f"{self.prefix}/health/tariff_status",
+            _status(tariff_age_minutes),
+            retain=True,
+        )
+        self._publish(
+            f"{self.prefix}/health/ha_state_age",
+            f"{ha_state_age_minutes:.0f}" if ha_state_age_minutes is not None else "",
+            retain=True,
+        )
+        self._publish(
+            f"{self.prefix}/health/ha_state_status",
+            _status(ha_state_age_minutes),
+            retain=True,
+        )
+
     def publish_control_state(
         self,
         auto_control_enabled: bool,
@@ -331,11 +364,21 @@ class MqttPublisher:
             ("today_flat_revenue", "revenue/today/flat_pence", "Today Flat Baseline Revenue", "p", "mdi:cash-minus"),
             ("today_uplift", "revenue/today/uplift_pence", "Today Uplift vs Flat", "p", "mdi:cash-plus"),
             ("today_export_kwh", "revenue/today/export_kwh", "Today Exported", "kWh", "mdi:lightning-bolt"),
+            ("today_import_cost", "revenue/today/import_cost_pence", "Today Import Cost", "p", "mdi:cash-remove"),
+            ("today_import_kwh", "revenue/today/import_kwh", "Today Imported", "kWh", "mdi:lightning-bolt-outline"),
+            ("today_net_revenue", "revenue/today/net_revenue_pence", "Today Net Revenue", "p", "mdi:cash-check"),
+            ("today_charging_cost", "revenue/today/charging_cost_pence", "Today Charging Opportunity Cost", "p", "mdi:battery-charging"),
+            ("today_true_profit", "revenue/today/true_profit_pence", "Today True Profit", "p", "mdi:cash-lock"),
             ("today_revenue_source", "revenue/today/source", "Today Revenue Source", None, "mdi:information-outline"),
             ("month_actual_revenue", "revenue/month/actual_pence", "Month Export Revenue", "p", "mdi:cash"),
             ("month_flat_revenue", "revenue/month/flat_pence", "Month Flat Baseline Revenue", "p", "mdi:cash-minus"),
             ("month_uplift", "revenue/month/uplift_pence", "Month Uplift vs Flat", "p", "mdi:cash-plus"),
             ("month_export_kwh", "revenue/month/export_kwh", "Month Exported", "kWh", "mdi:lightning-bolt"),
+            ("month_import_cost", "revenue/month/import_cost_pence", "Month Import Cost", "p", "mdi:cash-remove"),
+            ("month_import_kwh", "revenue/month/import_kwh", "Month Imported", "kWh", "mdi:lightning-bolt-outline"),
+            ("month_net_revenue", "revenue/month/net_revenue_pence", "Month Net Revenue", "p", "mdi:cash-check"),
+            ("month_charging_cost", "revenue/month/charging_cost_pence", "Month Charging Opportunity Cost", "p", "mdi:battery-charging"),
+            ("month_true_profit", "revenue/month/true_profit_pence", "Month True Profit", "p", "mdi:cash-lock"),
             ("7d_actual_revenue", "revenue/7d/actual_pence", "7-Day Export Revenue", "p", "mdi:cash"),
             ("7d_uplift", "revenue/7d/uplift_pence", "7-Day Uplift vs Flat", "p", "mdi:cash-plus"),
             ("7d_export_kwh", "revenue/7d/export_kwh", "7-Day Exported", "kWh", "mdi:lightning-bolt"),
@@ -349,6 +392,10 @@ class MqttPublisher:
             ("feed_in", "solar/feed_in", "Optimizer Feed-in", "kW", "mdi:transmission-tower-export"),
             ("last_run", "service/last_run", "Optimizer Last Run", None, "mdi:clock-outline"),
             ("import_rate", "rates/import/current", "Import Rate", "p/kWh", "mdi:currency-gbp"),
+            ("tariff_age", "health/tariff_age", "Tariff Data Age", "min", "mdi:clock-alert-outline"),
+            ("tariff_status", "health/tariff_status", "Tariff Data Status", None, "mdi:cloud-check"),
+            ("ha_state_age", "health/ha_state_age", "HA State Age", "min", "mdi:clock-alert-outline"),
+            ("ha_state_status", "health/ha_state_status", "HA State Status", None, "mdi:home-heart"),
         ]
 
         # Schedule sensors need json_attributes_topic (payload exceeds 255-char state limit)

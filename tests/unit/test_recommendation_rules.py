@@ -38,6 +38,24 @@ class TestInsufficientDataRule:
         result = rule.evaluate(snapshot)
         assert result is None
 
+    def test_fires_on_stale_tariff_data(self, thresholds, battery):
+        rule = InsufficientDataRule(thresholds, battery)
+        snapshot = make_recommendation_snapshot(
+            current_export_rate=15.0, tariff_data_age_minutes=90.0,
+        )
+        result = rule.evaluate(snapshot)
+        assert result is not None
+        assert result.state == RecommendationState.INSUFFICIENT_DATA
+        assert result.reason_code == ReasonCode.STALE_TARIFF_DATA
+
+    def test_skips_when_tariff_data_fresh(self, thresholds, battery):
+        rule = InsufficientDataRule(thresholds, battery)
+        snapshot = make_recommendation_snapshot(
+            current_export_rate=15.0, tariff_data_age_minutes=30.0,
+        )
+        result = rule.evaluate(snapshot)
+        assert result is None
+
 
 class TestExportNowRule:
     def test_fires_on_high_rate(self, thresholds, battery):

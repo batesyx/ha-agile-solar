@@ -33,8 +33,8 @@ class RecommendationRepo:
                     solar_estimate_kw, feed_in_kw, pv_power_kw, load_power_kw,
                     battery_charge_kw, battery_discharge_kw,
                     remaining_generation_heuristic, exportable_battery_kwh,
-                    battery_headroom_kwh)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    battery_headroom_kwh, tariff_data_age_minutes)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     snapshot.id,
                     snapshot.timestamp.isoformat(),
@@ -55,6 +55,7 @@ class RecommendationRepo:
                     snapshot.remaining_generation_heuristic,
                     snapshot.exportable_battery_kwh,
                     snapshot.battery_headroom_kwh,
+                    snapshot.tariff_data_age_minutes,
                 ),
             )
             self.db.conn.execute(
@@ -98,6 +99,7 @@ class RecommendationRepo:
                           s.load_power_kw, s.battery_charge_kw,
                           s.battery_discharge_kw, s.remaining_generation_heuristic,
                           s.exportable_battery_kwh, s.battery_headroom_kwh,
+                          s.tariff_data_age_minutes,
                           s.id as snapshot_id, s.timestamp as snapshot_timestamp
                    FROM recommendations r
                    JOIN recommendation_input_snapshots s
@@ -129,6 +131,7 @@ class RecommendationRepo:
             remaining_generation_heuristic=row["remaining_generation_heuristic"],
             exportable_battery_kwh=row["exportable_battery_kwh"],
             battery_headroom_kwh=row["battery_headroom_kwh"],
+            tariff_data_age_minutes=row["tariff_data_age_minutes"],
         )
         return rec, snapshot
 

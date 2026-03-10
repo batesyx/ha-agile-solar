@@ -120,6 +120,7 @@ class RecommendationEngine:
         ha_state: HaStateSnapshot | None,
         remaining_generation: float | None = None,
         minimum_soc_override: float | None = None,
+        tariff_data_age_minutes: float | None = None,
     ) -> RecommendationInputSnapshot:
         """Build a RecommendationInputSnapshot from available data.
 
@@ -196,4 +197,5 @@ class RecommendationEngine:
             remaining_generation_heuristic=remaining_generation,
             exportable_battery_kwh=exportable_kwh,
             battery_headroom_kwh=headroom_kwh,
+            tariff_data_age_minutes=tariff_data_age_minutes,
         )

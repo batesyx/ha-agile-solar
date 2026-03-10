@@ -120,3 +120,28 @@ class TestCalculateBatch:
         assert len(results) == 2
         assert results[0].interval_start == start1
         assert results[1].interval_start == start2
+
+
+class TestCalculateImportCostBatch:
+    def test_joins_by_interval_start(self, calculator):
+        start1 = datetime(2026, 3, 9, 12, 0, tzinfo=timezone.utc)
+        start2 = datetime(2026, 3, 9, 12, 30, tzinfo=timezone.utc)
+
+        meters = [
+            make_meter_interval(interval_start=start1, kwh=0.5, direction="import"),
+            make_meter_interval(interval_start=start2, kwh=0.3, direction="import"),
+        ]
+        tariffs = [
+            make_tariff_slot(interval_start=start1, rate_pence=7.5, tariff_type="import"),
+        ]
+
+        results = calculator.calculate_import_cost_batch(meters, tariffs)
+
+        assert len(results) == 1
+        assert results[0].import_kwh == 0.5
+        assert results[0].import_rate_pence == 7.5
+        assert results[0].import_cost_pence == pytest.approx(3.75)
+
+    def test_empty_inputs(self, calculator):
+        results = calculator.calculate_import_cost_batch([], [])
+        assert results == []
