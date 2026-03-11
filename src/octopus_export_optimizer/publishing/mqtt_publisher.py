@@ -603,7 +603,7 @@ class MqttPublisher:
             ("overnight_charge_target", "control/overnight_charge_target", "Overnight Charge Target", "%", "mdi:battery-clock"),
             ("overnight_solar_slots", "control/overnight_solar_slots", "Overnight Solar Slots", None, "mdi:weather-sunny"),
             ("overnight_savings", "control/overnight_savings", "Overnight Est. Savings", "p", "mdi:piggy-bank"),
-            ("overnight_detail", "control/overnight_detail", "Overnight Charge Detail", None, "mdi:text"),
+            ("overnight_detail", "control/overnight_detail", "Overnight Detail", None, "mdi:text"),
             ("charge_plan_status", "charge_plan/status", "Charge Plan Status", None, "mdi:battery-charging"),
             ("charge_plan_slots_count", "charge_plan/slots_count", "Charge Plan Slots", None, "mdi:calendar-multiple-check"),
             ("charge_plan_breakeven_rate", "charge_plan/breakeven_rate", "Charge Breakeven Rate", "p/kWh", "mdi:scale-balance"),

@@ -142,9 +142,17 @@ class OvernightChargeRule(Rule):
         )
 
         if soc >= effective_target:
-            return None  # Already charged enough
-
-        if snapshot.overnight_charge_target_pct is not None:
+            if snapshot.overnight_charge_target_pct is not None:
+                # Still fire the rule so engine sets max_soc to the target,
+                # preventing the inverter from charging beyond it.
+                explanation = (
+                    f"Cheap import window active. "
+                    f"Battery at {soc:.0%} — capped at {effective_target:.0%} "
+                    f"(solar-aware target, leaving headroom for solar)."
+                )
+            else:
+                return None  # Already charged enough (no dynamic target)
+        elif snapshot.overnight_charge_target_pct is not None:
             explanation = (
                 f"Cheap import window active. "
                 f"Battery at {soc:.0%} — charging to {effective_target:.0%} "

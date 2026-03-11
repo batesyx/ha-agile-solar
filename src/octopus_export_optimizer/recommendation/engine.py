@@ -139,7 +139,15 @@ class RecommendationEngine:
             and result.reason_code == ReasonCode.OVERNIGHT_CHARGE_STRATEGY
             and snapshot.overnight_charge_target_pct is not None
         ):
-            result.target_max_soc = int(snapshot.overnight_charge_target_pct * 100)
+            target_pct = int(snapshot.overnight_charge_target_pct * 100)
+            result.target_max_soc = target_pct
+            # If SoC is already at or above target, switch to Feed-in First
+            # to avoid Force Charge drawing from grid unnecessarily.
+            if (
+                snapshot.battery_soc_pct is not None
+                and snapshot.battery_soc_pct >= target_pct
+            ):
+                result.target_work_mode_override = "Feed-in First"
             return result
 
         # Charge plan: raise max_soc to 100% during identified low-rate

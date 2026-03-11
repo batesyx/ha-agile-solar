@@ -130,10 +130,12 @@ class TestOvernightChargeDynamicTarget:
         assert result.state == RecommendationState.CHARGE_FOR_LATER_EXPORT
         assert "solar-aware" in result.explanation
 
-    def test_dynamic_target_stops_at_target(self, rule):
-        """SoC at 50%, dynamic target at 50% — should NOT fire."""
+    def test_dynamic_target_at_target_still_fires(self, rule):
+        """SoC at 50%, dynamic target at 50% — still fires to set max_soc cap."""
         snap = self._snap(soc=50.0, overnight_target=0.50)
-        assert rule.evaluate(snap) is None
+        result = rule.evaluate(snap)
+        assert result is not None
+        assert "capped at" in result.explanation
 
     def test_dynamic_target_above_soc_still_fires(self, rule):
         """SoC at 70%, dynamic target at 80% — should fire."""
