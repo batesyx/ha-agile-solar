@@ -80,8 +80,21 @@ class MqttPublisher:
             retain=True,
         )
         self._publish(
+            f"{self.prefix}/rates/export/current_slot",
+            (
+                f"{current_export.interval_start.strftime('%H:%M')} – {current_export.interval_end.strftime('%H:%M')}"
+                if current_export else ""
+            ),
+            retain=True,
+        )
+        self._publish(
             f"{self.prefix}/rates/export/best_upcoming",
             self.builder.best_upcoming_payload(best_upcoming),
+            retain=True,
+        )
+        self._publish(
+            f"{self.prefix}/rates/export/best_upcoming_time",
+            best_upcoming.interval_start.strftime("%H:%M") if best_upcoming else "",
             retain=True,
         )
         if current_import:
@@ -482,7 +495,9 @@ class MqttPublisher:
         """Publish HA MQTT discovery config for all entities."""
         sensors = [
             ("export_rate", "rates/export/current", "Export Rate", "p/kWh", "mdi:currency-gbp"),
+            ("export_rate_slot", "rates/export/current_slot", "Export Rate Slot", None, "mdi:clock-outline"),
             ("best_upcoming_rate", "rates/export/best_upcoming", "Best Upcoming Export Rate", "p/kWh", "mdi:chart-line"),
+            ("best_upcoming_time", "rates/export/best_upcoming_time", "Best Upcoming Export Time", None, "mdi:clock-outline"),
             ("recommendation_state", "recommendation/state", "Recommendation", None, "mdi:lightbulb-on"),
             ("recommendation_explanation", "recommendation/explanation", "Recommendation Detail", None, "mdi:text"),
             ("recommendation_reason", "recommendation/reason_code", "Recommendation Reason", None, "mdi:tag"),
