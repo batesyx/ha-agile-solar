@@ -378,9 +378,11 @@ class MqttPublisher:
     ) -> None:
         """Publish solar-aware overnight charge target sensors."""
         if target is not None:
+            target_pct = target.target_soc_pct * 100
+            seasonal_pct = target.seasonal_max_pct * 100
             self._publish(
                 f"{self.prefix}/control/overnight_charge_target",
-                f"{target.target_soc_pct * 100:.0f}",
+                f"{target_pct:.0f}",
                 retain=True,
             )
             self._publish(
@@ -393,6 +395,24 @@ class MqttPublisher:
                 f"{target.estimated_savings_pence:.1f}",
                 retain=True,
             )
+            # Build human-readable detail
+            if target.headroom_kwh > 0:
+                detail = (
+                    f"Charging to {target_pct:.0f}% (reduced from {seasonal_pct:.0f}%) — "
+                    f"{target.solar_opportunity_slots} low-rate solar slots tomorrow, "
+                    f"leaving {target.headroom_kwh:.1f} kWh headroom for free solar charging. "
+                    f"Est. saving {target.estimated_savings_pence:.1f}p on overnight import."
+                )
+            else:
+                detail = (
+                    f"Full charge to {target_pct:.0f}% — "
+                    f"tomorrow's export rates are strong, limited solar charging opportunity."
+                )
+            self._publish(
+                f"{self.prefix}/control/overnight_detail",
+                detail,
+                retain=True,
+            )
         else:
             self._publish(
                 f"{self.prefix}/control/overnight_charge_target", "N/A", retain=True,
@@ -402,6 +422,11 @@ class MqttPublisher:
             )
             self._publish(
                 f"{self.prefix}/control/overnight_savings", "0.0", retain=True,
+            )
+            self._publish(
+                f"{self.prefix}/control/overnight_detail",
+                "Solar overnight charging disabled or no rate data available.",
+                retain=True,
             )
 
     def subscribe_kill_switch(self, on_toggle: Callable[[bool], None]) -> None:
@@ -507,6 +532,7 @@ class MqttPublisher:
             ("overnight_charge_target", "control/overnight_charge_target", "Overnight Charge Target", "%", "mdi:battery-clock"),
             ("overnight_solar_slots", "control/overnight_solar_slots", "Overnight Solar Slots", None, "mdi:weather-sunny"),
             ("overnight_savings", "control/overnight_savings", "Overnight Est. Savings", "p", "mdi:piggy-bank"),
+            ("overnight_detail", "control/overnight_detail", "Overnight Charge Detail", None, "mdi:text"),
         ]
 
         # Schedule sensors need json_attributes_topic (payload exceeds 255-char state limit)
