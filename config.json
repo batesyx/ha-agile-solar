@@ -1,6 +1,6 @@
 {
   "name": "Octopus Export Optimizer",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "init": false,
   "slug": "octopus_export_optimizer",
   "description": "Optimizes electricity export on Octopus Agile/Variable tariffs with FoxESS inverter",
@@ -42,7 +42,7 @@
     "minimum_overnight_soc_pct": 0.40,
     "solar_months_max_soc_pct": 0.80,
     "winter_max_soc_pct": 0.95,
-    "solar_charge_kwh_per_slot": 1.25
+    "solar_charge_kwh_per_slot": 2.0
   },
   "schema": {
     "octopus_api_key": "password",

@@ -439,6 +439,7 @@ class Application:
                 battery_headroom_kwh=snapshot.battery_headroom_kwh,
                 round_trip_efficiency=self.settings.battery.round_trip_efficiency,
                 export_threshold_pence=self.settings.thresholds.export_now_threshold_pence,
+                solar_charge_kwh_per_slot=ic.solar_charge_kwh_per_slot,
             )
 
         self._current_charge_plan = charge_plan

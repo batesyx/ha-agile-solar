@@ -65,8 +65,13 @@ def build_charge_plan(
     battery_headroom_kwh: float,
     round_trip_efficiency: float,
     export_threshold_pence: float,
+    solar_charge_kwh_per_slot: float = 2.0,
 ) -> ChargePlan | None:
     """Identify low-rate solar windows where battery should charge to 100%.
+
+    Selects only the cheapest slots needed to fill the battery headroom,
+    so solar is exported at mediocre rates and stored only during the
+    poorest-rate periods.
 
     Args:
         now: Current UTC time.
@@ -75,6 +80,7 @@ def build_charge_plan(
         battery_headroom_kwh: Room to charge from current SoC to 100%.
         round_trip_efficiency: Battery round-trip efficiency (0-1).
         export_threshold_pence: Minimum rate for profitable export.
+        solar_charge_kwh_per_slot: Conservative kWh absorbed per 30-min slot.
 
     Returns:
         A ChargePlan if charging windows are identified, None otherwise.
@@ -107,8 +113,8 @@ def build_charge_plan(
 
     breakeven = target_rate * discharge_eff
 
-    # Find charging windows: low-rate slots during solar hours, before discharge
-    charging_slots = []
+    # Find all eligible slots: below breakeven, solar hours, before discharge
+    candidates = []
     for slot in upcoming_slots:
         if slot.interval_end <= now:
             continue
@@ -118,16 +124,28 @@ def build_charge_plan(
         if not (_SOLAR_HOURS_START <= slot_hour < _SOLAR_HOURS_END):
             continue
         if slot.rate_inc_vat_pence < breakeven:
-            charging_slots.append(ChargingSlot(
-                interval_start=slot.interval_start,
-                interval_end=slot.interval_end,
-                export_rate_pence=slot.rate_inc_vat_pence,
-                value_of_storage_pence=round(breakeven - slot.rate_inc_vat_pence, 2),
-            ))
+            candidates.append(slot)
 
-    if not charging_slots:
+    if not candidates:
         return None
 
+    # Pick only the N cheapest slots needed to fill headroom
+    slots_needed = max(1, int(
+        (battery_headroom_kwh + solar_charge_kwh_per_slot - 0.01)
+        / solar_charge_kwh_per_slot
+    ))
+    candidates.sort(key=lambda s: s.rate_inc_vat_pence)
+    selected = candidates[:slots_needed]
+
+    charging_slots = [
+        ChargingSlot(
+            interval_start=s.interval_start,
+            interval_end=s.interval_end,
+            export_rate_pence=s.rate_inc_vat_pence,
+            value_of_storage_pence=round(breakeven - s.rate_inc_vat_pence, 2),
+        )
+        for s in selected
+    ]
     charging_slots.sort(key=lambda s: s.interval_start)
 
     return ChargePlan(

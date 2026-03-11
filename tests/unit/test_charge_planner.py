@@ -302,6 +302,68 @@ class TestBuildChargePlan:
             expected = round(result.breakeven_rate_pence - slot.export_rate_pence, 2)
             assert slot.value_of_storage_pence == expected
 
+    def test_cheapest_slots_selected_first(self):
+        """Only the N cheapest slots needed to fill headroom are selected."""
+        base_day = self.BASE.replace(hour=0)
+        # Create specific slots with distinct rates (default 20p = above breakeven)
+        slots = _make_day_slots(base_day, {16: 20.0}, default_rate=20.0)
+        # Override 4 specific half-hour slots with low rates
+        for s in slots:
+            if s.interval_start.hour == 8 and s.interval_start.minute == 0:
+                slots[slots.index(s)] = make_tariff_slot(interval_start=s.interval_start, rate_pence=3.0)
+            elif s.interval_start.hour == 9 and s.interval_start.minute == 0:
+                slots[slots.index(s)] = make_tariff_slot(interval_start=s.interval_start, rate_pence=7.0)
+            elif s.interval_start.hour == 10 and s.interval_start.minute == 0:
+                slots[slots.index(s)] = make_tariff_slot(interval_start=s.interval_start, rate_pence=11.0)
+            elif s.interval_start.hour == 11 and s.interval_start.minute == 0:
+                slots[slots.index(s)] = make_tariff_slot(interval_start=s.interval_start, rate_pence=14.0)
+        plan = _make_export_plan(base_day, [16], rate=20.0)
+
+        # 2.5 kWh headroom / 1.25 kWh per slot = 2 slots needed
+        result = build_charge_plan(
+            now=self.BASE,
+            upcoming_slots=slots,
+            export_plan=plan,
+            battery_headroom_kwh=2.5,
+            round_trip_efficiency=0.90,
+            export_threshold_pence=15.0,
+            solar_charge_kwh_per_slot=1.25,
+        )
+
+        assert result is not None
+        assert len(result.charging_slots) == 2
+        rates = {s.export_rate_pence for s in result.charging_slots}
+        assert rates == {3.0, 7.0}  # two cheapest
+
+    def test_small_headroom_selects_single_cheapest(self):
+        """With minimal headroom, only the single cheapest slot is selected."""
+        base_day = self.BASE.replace(hour=0)
+        # Default 20p (above breakeven), override specific slots
+        slots = _make_day_slots(base_day, {16: 20.0}, default_rate=20.0)
+        for s in slots:
+            if s.interval_start.hour == 8 and s.interval_start.minute == 0:
+                slots[slots.index(s)] = make_tariff_slot(interval_start=s.interval_start, rate_pence=3.0)
+            elif s.interval_start.hour == 9 and s.interval_start.minute == 0:
+                slots[slots.index(s)] = make_tariff_slot(interval_start=s.interval_start, rate_pence=7.0)
+            elif s.interval_start.hour == 10 and s.interval_start.minute == 0:
+                slots[slots.index(s)] = make_tariff_slot(interval_start=s.interval_start, rate_pence=12.0)
+        plan = _make_export_plan(base_day, [16], rate=20.0)
+
+        # 0.5 kWh headroom → 1 slot needed
+        result = build_charge_plan(
+            now=self.BASE,
+            upcoming_slots=slots,
+            export_plan=plan,
+            battery_headroom_kwh=0.5,
+            round_trip_efficiency=0.90,
+            export_threshold_pence=15.0,
+            solar_charge_kwh_per_slot=1.25,
+        )
+
+        assert result is not None
+        assert len(result.charging_slots) == 1
+        assert result.charging_slots[0].export_rate_pence == 3.0
+
 
 class TestChargePlanHelpers:
     def test_is_charging_now_true(self):

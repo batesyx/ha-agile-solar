@@ -113,7 +113,7 @@ class InverterControlSettings(BaseModel):
     minimum_overnight_soc_pct: float = 0.40  # Never charge below 40%
     solar_months_max_soc_pct: float = 0.80  # Max overnight charge Mar-Sep
     winter_max_soc_pct: float = 0.95  # Max overnight charge Oct-Feb
-    solar_charge_kwh_per_slot: float = 1.25  # Conservative kWh per 30-min solar slot
+    solar_charge_kwh_per_slot: float = 2.0  # kWh per 30-min solar slot
 
 
 class HaEntityIds(BaseModel):
