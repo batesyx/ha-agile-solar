@@ -79,7 +79,7 @@ def build_charge_plan(
     Returns:
         A ChargePlan if charging windows are identified, None otherwise.
     """
-    if battery_headroom_kwh < 0.5 or not upcoming_slots:
+    if battery_headroom_kwh < 0.1 or not upcoming_slots:
         return None
 
     discharge_eff = round_trip_efficiency ** 0.5

@@ -430,7 +430,7 @@ class Application:
         if (
             self.settings.inverter_control.export_planner_enabled
             and snapshot.battery_headroom_kwh
-            and snapshot.battery_headroom_kwh > 0.5
+            and snapshot.battery_headroom_kwh > 0.1
         ):
             charge_plan = build_charge_plan(
                 now=now,

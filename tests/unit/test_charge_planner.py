@@ -67,7 +67,7 @@ class TestBuildChargePlan:
             now=self.BASE,
             upcoming_slots=slots,
             export_plan=None,
-            battery_headroom_kwh=0.3,  # below 0.5 threshold
+            battery_headroom_kwh=0.05,  # below 0.1 threshold
             round_trip_efficiency=0.90,
             export_threshold_pence=15.0,
         )
