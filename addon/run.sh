@@ -24,6 +24,11 @@ CHEAP_RATE_START=$(jq -r '.cheap_rate_start_hour // 23.5' "$CONFIG_PATH")
 CHEAP_RATE_END=$(jq -r '.cheap_rate_end_hour // 5.5' "$CONFIG_PATH")
 EXPORT_PLANNER=$(jq -r '.export_planner_enabled // false' "$CONFIG_PATH")
 MAX_DISCHARGE_KW=$(jq -r '.max_discharge_kw // 5.0' "$CONFIG_PATH")
+SOLAR_OVERNIGHT=$(jq -r '.solar_overnight_enabled // false' "$CONFIG_PATH")
+MIN_OVERNIGHT_SOC=$(jq -r '.minimum_overnight_soc_pct // 0.40' "$CONFIG_PATH")
+SOLAR_MONTHS_MAX_SOC=$(jq -r '.solar_months_max_soc_pct // 0.80' "$CONFIG_PATH")
+WINTER_MAX_SOC=$(jq -r '.winter_max_soc_pct // 0.95' "$CONFIG_PATH")
+SOLAR_CHARGE_PER_SLOT=$(jq -r '.solar_charge_kwh_per_slot // 1.25' "$CONFIG_PATH")
 
 # HA Supervisor provides the token and URL automatically
 HA_TOKEN="${SUPERVISOR_TOKEN}"
@@ -114,6 +119,11 @@ inverter_control:
   cheap_rate_end_hour: ${CHEAP_RATE_END}
   export_planner_enabled: ${EXPORT_PLANNER}
   max_discharge_kw: ${MAX_DISCHARGE_KW}
+  solar_overnight_enabled: ${SOLAR_OVERNIGHT}
+  minimum_overnight_soc_pct: ${MIN_OVERNIGHT_SOC}
+  solar_months_max_soc_pct: ${SOLAR_MONTHS_MAX_SOC}
+  winter_max_soc_pct: ${WINTER_MAX_SOC}
+  solar_charge_kwh_per_slot: ${SOLAR_CHARGE_PER_SLOT}
 
 db_path: "/data/optimizer.db"
 log_level: "INFO"

@@ -153,14 +153,14 @@ class InverterController:
         error = None
 
         try:
+            if soc_changed and target_max_soc is not None:
+                self._send_max_soc(target_max_soc)
+
             if mode_changed:
                 self._send_work_mode(target_mode)
 
             if discharge_kw_changed and target_discharge_kw is not None:
                 self._send_force_discharge_power(target_discharge_kw)
-
-            if soc_changed and target_max_soc is not None:
-                self._send_max_soc(target_max_soc)
         except Exception as e:
             success = False
             error = str(e)
