@@ -263,10 +263,13 @@ class MqttPublisher:
         slots: list[TariffSlot],
         current_time: datetime | None,
         planned_starts: set[str] | None = None,
+        charging_starts: set[str] | None = None,
     ) -> None:
         """Publish a rate schedule: JSON to attributes topic, count to state topic."""
         payload = self.builder.rate_schedule_payload(
-            slots, current_time, planned_starts=planned_starts,
+            slots, current_time,
+            planned_starts=planned_starts,
+            charging_starts=charging_starts,
         )
         self._publish(f"{topic_base}", payload, retain=True)
         # Short state value for HA (avoids 255-char limit)
@@ -294,11 +297,14 @@ class MqttPublisher:
         import_slots: list[TariffSlot] | None = None,
         current_time: datetime | None = None,
         planned_starts: set[str] | None = None,
+        charging_starts: set[str] | None = None,
     ) -> None:
         """Publish forward-looking rate schedule (now → 48h) for charting."""
         self._publish_schedule(
             f"{self.prefix}/rates/export/upcoming_schedule",
-            export_slots, current_time, planned_starts=planned_starts,
+            export_slots, current_time,
+            planned_starts=planned_starts,
+            charging_starts=charging_starts,
         )
         if import_slots:
             self._publish_schedule(
@@ -442,6 +448,56 @@ class MqttPublisher:
                 retain=True,
             )
 
+    def publish_charge_plan(
+        self,
+        charge_plan: object | None,
+    ) -> None:
+        """Publish solar charging plan sensors."""
+        if charge_plan is not None:
+            slots = charge_plan.charging_slots
+            current = charge_plan.get_current_slot(
+                __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+            )
+            status = "CHARGING" if current else "WAITING"
+            self._publish(
+                f"{self.prefix}/charge_plan/status", status, retain=True,
+            )
+            self._publish(
+                f"{self.prefix}/charge_plan/slots_count",
+                str(len(slots)),
+                retain=True,
+            )
+            self._publish(
+                f"{self.prefix}/charge_plan/breakeven_rate",
+                f"{charge_plan.breakeven_rate_pence:.1f}",
+                retain=True,
+            )
+            detail = (
+                f"{len(slots)} low-rate solar slots identified "
+                f"(below {charge_plan.breakeven_rate_pence:.1f}p breakeven). "
+                f"Battery charging to 100% during these windows, "
+                f"storing for later discharge at ~{charge_plan.target_discharge_rate_pence:.1f}p/kWh. "
+                f"{charge_plan.headroom_kwh:.1f} kWh headroom available."
+            )
+            self._publish(
+                f"{self.prefix}/charge_plan/detail", detail, retain=True,
+            )
+        else:
+            self._publish(
+                f"{self.prefix}/charge_plan/status", "NONE", retain=True,
+            )
+            self._publish(
+                f"{self.prefix}/charge_plan/slots_count", "0", retain=True,
+            )
+            self._publish(
+                f"{self.prefix}/charge_plan/breakeven_rate", "0.0", retain=True,
+            )
+            self._publish(
+                f"{self.prefix}/charge_plan/detail",
+                "No charging windows identified.",
+                retain=True,
+            )
+
     def subscribe_kill_switch(self, on_toggle: Callable[[bool], None]) -> None:
         """Subscribe to auto control kill switch command topic."""
         topic = f"{self.prefix}/control/auto_control/set"
@@ -548,6 +604,10 @@ class MqttPublisher:
             ("overnight_solar_slots", "control/overnight_solar_slots", "Overnight Solar Slots", None, "mdi:weather-sunny"),
             ("overnight_savings", "control/overnight_savings", "Overnight Est. Savings", "p", "mdi:piggy-bank"),
             ("overnight_detail", "control/overnight_detail", "Overnight Charge Detail", None, "mdi:text"),
+            ("charge_plan_status", "charge_plan/status", "Charge Plan Status", None, "mdi:battery-charging"),
+            ("charge_plan_slots_count", "charge_plan/slots_count", "Charge Plan Slots", None, "mdi:calendar-multiple-check"),
+            ("charge_plan_breakeven_rate", "charge_plan/breakeven_rate", "Charge Breakeven Rate", "p/kWh", "mdi:scale-balance"),
+            ("charge_plan_detail", "charge_plan/detail", "Charge Plan Detail", None, "mdi:text"),
         ]
 
         # Schedule sensors need json_attributes_topic (payload exceeds 255-char state limit)

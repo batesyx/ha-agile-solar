@@ -89,6 +89,7 @@ class PayloadBuilder:
         slots: list[TariffSlot],
         current_time: datetime | None = None,
         planned_starts: set[str] | None = None,
+        charging_starts: set[str] | None = None,
     ) -> str:
         """Build a JSON payload with today's rate schedule for charting.
 
@@ -97,21 +98,25 @@ class PayloadBuilder:
 
         If planned_starts is provided, each rate entry includes a
         'planned' boolean indicating whether the slot is targeted
-        by the export planner.
+        by the export planner. If charging_starts is provided, a
+        'charging' boolean indicates solar charging windows.
         """
         if not slots:
             return json.dumps({"rates": [], "count": 0})
 
         rates = []
         for slot in sorted(slots, key=lambda s: s.interval_start):
+            iso = slot.interval_start.isoformat()
             entry: dict = {
                 "start": slot.interval_start.strftime("%H:%M"),
                 "end": slot.interval_end.strftime("%H:%M"),
                 "rate": round(slot.rate_inc_vat_pence, 2),
-                "start_iso": slot.interval_start.isoformat(),
+                "start_iso": iso,
                 "planned": (
-                    planned_starts is not None
-                    and slot.interval_start.isoformat() in planned_starts
+                    planned_starts is not None and iso in planned_starts
+                ),
+                "charging": (
+                    charging_starts is not None and iso in charging_starts
                 ),
             }
             rates.append(entry)

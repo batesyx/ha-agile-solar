@@ -302,3 +302,88 @@ class TestOvernightMaxSocOverride:
         result = engine.evaluate(snap)
         assert result.state == RecommendationState.CHARGE_FOR_LATER_EXPORT
         assert result.target_max_soc == 90  # Default when no upcoming rates
+
+
+class TestChargePlanMaxSocOverride:
+    """Charge plan raises max_soc to 100% during identified charging windows."""
+
+    @pytest.fixture
+    def engine(self, thresholds, battery):
+        return RecommendationEngine(thresholds, battery)
+
+    def test_charge_plan_raises_max_soc_to_100(self, engine):
+        """During a charging window, max_soc should be 100."""
+        from octopus_export_optimizer.calculations.charge_planner import ChargePlan, ChargingSlot
+
+        now = datetime(2026, 6, 15, 9, 15, tzinfo=timezone.utc)
+        snap = make_recommendation_snapshot(timestamp=now)
+        charge_plan = ChargePlan(
+            charging_slots=[
+                ChargingSlot(
+                    interval_start=datetime(2026, 6, 15, 9, 0, tzinfo=timezone.utc),
+                    interval_end=datetime(2026, 6, 15, 9, 30, tzinfo=timezone.utc),
+                    export_rate_pence=5.0,
+                    value_of_storage_pence=13.0,
+                ),
+            ],
+            target_discharge_rate_pence=20.0,
+            breakeven_rate_pence=18.0,
+            headroom_kwh=5.0,
+        )
+        result = engine.evaluate(snap, charge_plan=charge_plan)
+        assert result.target_max_soc == 100
+
+    def test_no_charge_plan_default_max_soc(self, engine):
+        """Without a charge plan, max_soc follows normal logic (90 default)."""
+        now = datetime(2026, 6, 15, 9, 15, tzinfo=timezone.utc)
+        snap = make_recommendation_snapshot(timestamp=now)
+        result = engine.evaluate(snap, charge_plan=None)
+        assert result.target_max_soc == 90
+
+    def test_charge_plan_outside_window_default_max_soc(self, engine):
+        """Outside charging windows, max_soc follows normal logic."""
+        from octopus_export_optimizer.calculations.charge_planner import ChargePlan, ChargingSlot
+
+        now = datetime(2026, 6, 15, 11, 0, tzinfo=timezone.utc)  # 11:00, outside 09:00-09:30
+        snap = make_recommendation_snapshot(timestamp=now)
+        charge_plan = ChargePlan(
+            charging_slots=[
+                ChargingSlot(
+                    interval_start=datetime(2026, 6, 15, 9, 0, tzinfo=timezone.utc),
+                    interval_end=datetime(2026, 6, 15, 9, 30, tzinfo=timezone.utc),
+                    export_rate_pence=5.0,
+                    value_of_storage_pence=13.0,
+                ),
+            ],
+            target_discharge_rate_pence=20.0,
+            breakeven_rate_pence=18.0,
+            headroom_kwh=5.0,
+        )
+        result = engine.evaluate(snap, charge_plan=charge_plan)
+        assert result.target_max_soc == 90
+
+    def test_charge_plan_does_not_affect_work_mode(self, engine):
+        """Charge plan only affects max_soc, not the recommendation state."""
+        from octopus_export_optimizer.calculations.charge_planner import ChargePlan, ChargingSlot
+
+        now = datetime(2026, 6, 15, 9, 15, tzinfo=timezone.utc)
+        snap = make_recommendation_snapshot(
+            timestamp=now, current_export_rate=5.0, best_upcoming_rate=8.0,
+        )
+        charge_plan = ChargePlan(
+            charging_slots=[
+                ChargingSlot(
+                    interval_start=datetime(2026, 6, 15, 9, 0, tzinfo=timezone.utc),
+                    interval_end=datetime(2026, 6, 15, 9, 30, tzinfo=timezone.utc),
+                    export_rate_pence=5.0,
+                    value_of_storage_pence=13.0,
+                ),
+            ],
+            target_discharge_rate_pence=20.0,
+            breakeven_rate_pence=18.0,
+            headroom_kwh=5.0,
+        )
+        result = engine.evaluate(snap, charge_plan=charge_plan)
+        # Work mode should be normal self-consumption (low rates, nothing to export)
+        assert result.state == RecommendationState.NORMAL_SELF_CONSUMPTION
+        assert result.target_max_soc == 100

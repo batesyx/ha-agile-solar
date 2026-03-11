@@ -74,6 +74,7 @@ class RecommendationEngine:
         snapshot: RecommendationInputSnapshot,
         upcoming_12h_rates: list[TariffSlot] | None = None,
         export_plan: ExportPlan | None = None,
+        charge_plan: object | None = None,
     ) -> Recommendation:
         """Evaluate rules and return a recommendation.
 
@@ -139,6 +140,17 @@ class RecommendationEngine:
             and snapshot.overnight_charge_target_pct is not None
         ):
             result.target_max_soc = int(snapshot.overnight_charge_target_pct * 100)
+            return result
+
+        # Charge plan: raise max_soc to 100% during identified low-rate
+        # solar windows so battery absorbs free solar for later discharge.
+        if charge_plan is not None and charge_plan.is_charging_now(snapshot.timestamp):
+            result.target_max_soc = 100
+            logger.info(
+                "Charge plan active: max_soc=100%% (breakeven %.1fp, storing for %.1fp discharge)",
+                charge_plan.breakeven_rate_pence,
+                charge_plan.target_discharge_rate_pence,
+            )
             return result
 
         # Calculate target Max SoC based on upcoming export rates.

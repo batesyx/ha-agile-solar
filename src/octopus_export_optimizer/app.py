@@ -12,6 +12,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from octopus_export_optimizer.calculations.aggregator import Aggregator
 from octopus_export_optimizer.calculations.revenue_calculator import RevenueCalculator
+from octopus_export_optimizer.calculations.charge_planner import build_charge_plan
 from octopus_export_optimizer.calculations.export_planner import build_export_plan
 from octopus_export_optimizer.models.export_plan import ExportPlan
 from octopus_export_optimizer.calculations.revenue_estimator import estimate_revenue
@@ -424,8 +425,33 @@ class Application:
                 export_plan.discharge_kw,
             )
 
+        # Build charge plan: identify low-rate solar windows for charging
+        charge_plan = None
+        if (
+            self.settings.inverter_control.export_planner_enabled
+            and snapshot.battery_headroom_kwh
+            and snapshot.battery_headroom_kwh > 0.5
+        ):
+            charge_plan = build_charge_plan(
+                now=now,
+                upcoming_slots=upcoming_12h,
+                export_plan=export_plan,
+                battery_headroom_kwh=snapshot.battery_headroom_kwh,
+                round_trip_efficiency=self.settings.battery.round_trip_efficiency,
+                export_threshold_pence=self.settings.thresholds.export_now_threshold_pence,
+            )
+
+        self._current_charge_plan = charge_plan
+        if charge_plan:
+            logger.info(
+                "Charge plan: %d slots, breakeven %.1fp (storing for %.1fp discharge)",
+                len(charge_plan.charging_slots),
+                charge_plan.breakeven_rate_pence,
+                charge_plan.target_discharge_rate_pence,
+            )
+
         recommendation = self.engine.evaluate(
-            snapshot, upcoming_12h, export_plan=export_plan
+            snapshot, upcoming_12h, export_plan=export_plan, charge_plan=charge_plan
         )
         self.recommendation_repo.save(recommendation, snapshot)
         logger.info(
@@ -533,11 +559,19 @@ class Application:
                 s.interval_start.isoformat()
                 for s in self._current_export_plan.planned_slots
             }
+        charging_starts: set[str] | None = None
+        charge_plan = getattr(self, "_current_charge_plan", None)
+        if charge_plan:
+            charging_starts = {
+                s.interval_start.isoformat()
+                for s in charge_plan.charging_slots
+            }
         self.mqtt_publisher.publish_upcoming_rate_schedule(
             upcoming_export,
             upcoming_import if upcoming_import else None,
             now,
             planned_starts=planned_starts,
+            charging_starts=charging_starts,
         )
 
         rec = self.recommendation_repo.get_latest()
@@ -545,6 +579,9 @@ class Application:
         self.mqtt_publisher.publish_export_plan(rec, self._current_export_plan, now)
         self.mqtt_publisher.publish_overnight_target(
             getattr(self, "_current_overnight_target", None)
+        )
+        self.mqtt_publisher.publish_charge_plan(
+            getattr(self, "_current_charge_plan", None)
         )
 
         today_summary = self.revenue_repo.get_summary("day", today.isoformat())
