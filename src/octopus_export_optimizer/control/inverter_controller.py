@@ -109,6 +109,11 @@ class InverterController:
             if target_mode is None:
                 return None
 
+        # Override work mode if the engine set an explicit override
+        # (e.g., Self Use during solar charging windows)
+        if recommendation.target_work_mode_override is not None:
+            target_mode = WorkMode(recommendation.target_work_mode_override)
+
         # Override to Force Discharge when export planner sets a power target
         target_discharge_kw = recommendation.target_discharge_kw
         if target_discharge_kw is not None:

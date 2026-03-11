@@ -362,8 +362,8 @@ class TestChargePlanMaxSocOverride:
         result = engine.evaluate(snap, charge_plan=charge_plan)
         assert result.target_max_soc == 90
 
-    def test_charge_plan_does_not_affect_work_mode(self, engine):
-        """Charge plan only affects max_soc, not the recommendation state."""
+    def test_charge_plan_sets_self_use_override(self, engine):
+        """Charge plan sets Self Use work mode override during charging window."""
         from octopus_export_optimizer.calculations.charge_planner import ChargePlan, ChargingSlot
 
         now = datetime(2026, 6, 15, 9, 15, tzinfo=timezone.utc)
@@ -384,6 +384,27 @@ class TestChargePlanMaxSocOverride:
             headroom_kwh=5.0,
         )
         result = engine.evaluate(snap, charge_plan=charge_plan)
-        # Work mode should be normal self-consumption (low rates, nothing to export)
-        assert result.state == RecommendationState.NORMAL_SELF_CONSUMPTION
         assert result.target_max_soc == 100
+        assert result.target_work_mode_override == "Self Use"
+
+    def test_charge_plan_outside_window_no_override(self, engine):
+        """Outside charging window, no work mode override is set."""
+        from octopus_export_optimizer.calculations.charge_planner import ChargePlan, ChargingSlot
+
+        now = datetime(2026, 6, 15, 11, 0, tzinfo=timezone.utc)
+        snap = make_recommendation_snapshot(timestamp=now)
+        charge_plan = ChargePlan(
+            charging_slots=[
+                ChargingSlot(
+                    interval_start=datetime(2026, 6, 15, 9, 0, tzinfo=timezone.utc),
+                    interval_end=datetime(2026, 6, 15, 9, 30, tzinfo=timezone.utc),
+                    export_rate_pence=5.0,
+                    value_of_storage_pence=13.0,
+                ),
+            ],
+            target_discharge_rate_pence=20.0,
+            breakeven_rate_pence=18.0,
+            headroom_kwh=5.0,
+        )
+        result = engine.evaluate(snap, charge_plan=charge_plan)
+        assert result.target_work_mode_override is None

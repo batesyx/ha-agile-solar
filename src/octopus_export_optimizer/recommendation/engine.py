@@ -146,8 +146,9 @@ class RecommendationEngine:
         # solar windows so battery absorbs free solar for later discharge.
         if charge_plan is not None and charge_plan.is_charging_now(snapshot.timestamp):
             result.target_max_soc = 100
+            result.target_work_mode_override = "Self Use"
             logger.info(
-                "Charge plan active: max_soc=100%% (breakeven %.1fp, storing for %.1fp discharge)",
+                "Charge plan active: max_soc=100%%, Self Use (breakeven %.1fp, storing for %.1fp discharge)",
                 charge_plan.breakeven_rate_pence,
                 charge_plan.target_discharge_rate_pence,
             )
