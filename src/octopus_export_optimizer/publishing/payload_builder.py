@@ -66,17 +66,22 @@ class PayloadBuilder:
                 "flat_pence": "0.0",
                 "uplift_pence": "0.0",
                 "export_kwh": "0.0",
+                "flat_export_kwh": "0.00",
+                "flat_rate_pence": "0.0",
                 "import_cost_pence": "0.0",
                 "import_kwh": "0.0",
                 "net_revenue_pence": "0.0",
                 "charging_cost_pence": "0.0",
                 "true_profit_pence": "0.0",
             }
+        flat_kwh = summary.flat_export_kwh
         return {
             "actual_pence": f"{summary.agile_revenue_pence:.1f}",
             "flat_pence": f"{summary.flat_revenue_pence:.1f}",
             "uplift_pence": f"{summary.uplift_pence:.1f}",
             "export_kwh": f"{summary.total_export_kwh:.2f}",
+            "flat_export_kwh": f"{flat_kwh:.2f}" if flat_kwh is not None else "N/A",
+            "flat_rate_pence": f"{summary.avg_flat_rate_pence:.1f}",
             "import_cost_pence": f"{summary.import_cost_pence:.1f}",
             "import_kwh": f"{summary.total_import_kwh:.2f}",
             "net_revenue_pence": f"{summary.net_revenue_pence:.1f}",

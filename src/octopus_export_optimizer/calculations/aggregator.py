@@ -62,6 +62,15 @@ class Aggregator:
         above_flat = sum(1 for i in intervals if i.is_uplift_positive)
         avg_rate = agile_rev / total_kwh if total_kwh > 0 else 0.0
 
+        # Flat baseline detail: aggregate solar excess counterfactual
+        flat_excess_intervals = [i for i in intervals if i.flat_export_kwh is not None]
+        flat_export_kwh = (
+            round(sum(i.flat_export_kwh for i in flat_excess_intervals), 4)
+            if flat_excess_intervals
+            else None
+        )
+        avg_flat_rate = flat_rev / total_kwh if total_kwh > 0 else 0.0
+
         # Import cost aggregation
         import_cost = 0.0
         import_kwh = 0.0
@@ -82,6 +91,8 @@ class Aggregator:
             intervals_above_flat=above_flat,
             total_intervals=len(intervals),
             calculated_at=now,
+            flat_export_kwh=flat_export_kwh,
+            avg_flat_rate_pence=round(avg_flat_rate, 2),
             import_cost_pence=round(import_cost, 4),
             total_import_kwh=round(import_kwh, 4),
             net_revenue_pence=round(net_rev, 4),

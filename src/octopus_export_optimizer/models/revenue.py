@@ -63,6 +63,10 @@ class RevenueSummary(BaseModel):
     total_import_kwh: float = 0.0
     net_revenue_pence: float = 0.0  # agile_revenue - import_cost
 
+    # Flat baseline detail
+    flat_export_kwh: float | None = None  # Solar excess counterfactual kWh
+    avg_flat_rate_pence: float = 0.0  # Weighted avg flat rate for the period
+
     # Charging opportunity cost (Phase 3)
     charging_opportunity_cost_pence: float = 0.0
     true_profit_pence: float = 0.0  # net_revenue - opportunity_cost
