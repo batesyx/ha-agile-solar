@@ -680,6 +680,62 @@ class Application:
                     estimate.snapshot_count,
                 )
 
+                # Update month summary to include today's estimated data
+                if month_summary is None or month_summary.total_export_kwh == 0:
+                    # No settled month data — use today's estimate as the month
+                    month_summary = RevenueSummary(
+                        period_type="month",
+                        period_key=month_key,
+                        total_export_kwh=today_summary.total_export_kwh,
+                        agile_revenue_pence=today_summary.agile_revenue_pence,
+                        flat_revenue_pence=today_summary.flat_revenue_pence,
+                        uplift_pence=today_summary.uplift_pence,
+                        avg_realised_rate_pence=today_summary.avg_realised_rate_pence,
+                        intervals_above_flat=0,
+                        total_intervals=0,
+                        calculated_at=now,
+                        flat_export_kwh=today_summary.flat_export_kwh,
+                        avg_flat_rate_pence=today_summary.avg_flat_rate_pence,
+                        import_cost_pence=today_summary.import_cost_pence,
+                        total_import_kwh=today_summary.total_import_kwh,
+                        net_revenue_pence=today_summary.net_revenue_pence,
+                        charging_opportunity_cost_pence=today_summary.charging_opportunity_cost_pence,
+                        true_profit_pence=today_summary.true_profit_pence,
+                    )
+                else:
+                    # Settled month data exists — add today's estimate on top
+                    m = month_summary
+                    t = today_summary
+                    combined_kwh = m.total_export_kwh + t.total_export_kwh
+                    combined_agile = m.agile_revenue_pence + t.agile_revenue_pence
+                    combined_flat = m.flat_revenue_pence + t.flat_revenue_pence
+                    combined_import = m.import_cost_pence + t.import_cost_pence
+                    combined_import_kwh = m.total_import_kwh + t.total_import_kwh
+                    combined_opp = m.charging_opportunity_cost_pence + t.charging_opportunity_cost_pence
+                    combined_net = combined_agile - combined_import
+                    flat_kwh = None
+                    if t.flat_export_kwh is not None:
+                        flat_kwh = (m.flat_export_kwh or 0.0) + t.flat_export_kwh
+                    elif m.flat_export_kwh is not None:
+                        flat_kwh = m.flat_export_kwh
+                    month_summary = month_summary.model_copy(update={
+                        "total_export_kwh": round(combined_kwh, 4),
+                        "agile_revenue_pence": round(combined_agile, 4),
+                        "flat_revenue_pence": round(combined_flat, 4),
+                        "uplift_pence": round(combined_agile - combined_flat, 4),
+                        "avg_realised_rate_pence": round(
+                            combined_agile / combined_kwh if combined_kwh > 0 else 0.0, 2
+                        ),
+                        "import_cost_pence": round(combined_import, 4),
+                        "total_import_kwh": round(combined_import_kwh, 4),
+                        "net_revenue_pence": round(combined_net, 4),
+                        "charging_opportunity_cost_pence": round(combined_opp, 4),
+                        "true_profit_pence": round(combined_net - combined_opp, 4),
+                        "flat_export_kwh": flat_kwh,
+                        "avg_flat_rate_pence": t.avg_flat_rate_pence or m.avg_flat_rate_pence,
+                        "calculated_at": now,
+                    })
+
         self.mqtt_publisher.publish_revenue(
             today_summary, month_summary, today_is_estimated=today_is_estimated,
         )
