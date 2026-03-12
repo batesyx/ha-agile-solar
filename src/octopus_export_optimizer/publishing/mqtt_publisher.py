@@ -326,6 +326,20 @@ class MqttPublisher:
             retain=True,
         )
 
+    def publish_monthly_revenue_history(self, monthly_data: list[dict]) -> None:
+        """Publish monthly revenue history as JSON attributes for charting."""
+        payload = json.dumps({"months": monthly_data})
+        self._publish(
+            f"{self.prefix}/revenue/monthly_history",
+            payload,
+            retain=True,
+        )
+        self._publish(
+            f"{self.prefix}/revenue/monthly_history/state",
+            str(len(monthly_data)),
+            retain=True,
+        )
+
     def publish_service_status(self, last_run: datetime | None) -> None:
         """Publish service health status."""
         self._publish(
@@ -660,6 +674,7 @@ class MqttPublisher:
             ("upcoming_export_schedule", "rates/export/upcoming_schedule", "Upcoming Export Rates", "mdi:chart-timeline-variant"),
             ("upcoming_import_schedule", "rates/import/upcoming_schedule", "Upcoming Import Rates", "mdi:chart-timeline-variant"),
             ("daily_revenue_history", "revenue/daily_history", "Daily Revenue History", "mdi:chart-bar"),
+            ("monthly_revenue_history", "revenue/monthly_history", "Monthly Revenue History", "mdi:chart-bar"),
         ]
 
         for object_id, state_suffix, name, unit, icon in sensors:

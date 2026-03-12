@@ -753,6 +753,9 @@ class Application:
         daily_history = self.revenue_repo.get_daily_summaries(30)
         self.mqtt_publisher.publish_daily_revenue_history(daily_history)
 
+        monthly_history = self.revenue_repo.get_monthly_summaries(12)
+        self.mqtt_publisher.publish_monthly_revenue_history(monthly_history)
+
         ha_state = self.ha_state_repo.get_latest()
         self.mqtt_publisher.publish_ha_state(ha_state)
 

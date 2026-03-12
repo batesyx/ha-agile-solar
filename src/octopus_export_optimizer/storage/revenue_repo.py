@@ -171,6 +171,36 @@ class RevenueRepo:
             for r in reversed(rows)
         ]
 
+    def get_monthly_summaries(self, months: int = 12) -> list[dict]:
+        """Get recent monthly revenue summaries for charting."""
+        with self.db.lock:
+            rows = self.db.conn.execute(
+                """SELECT period_key, total_export_kwh,
+                          agile_revenue_pence, flat_revenue_pence,
+                          uplift_pence, avg_realised_rate_pence,
+                          net_revenue_pence, import_cost_pence,
+                          total_import_kwh
+                   FROM revenue_summaries
+                   WHERE period_type = 'month'
+                   ORDER BY period_key DESC
+                   LIMIT ?""",
+                (months,),
+            ).fetchall()
+        return [
+            {
+                "month": r[0],
+                "export_kwh": r[1],
+                "agile_pence": r[2],
+                "flat_pence": r[3],
+                "uplift_pence": r[4],
+                "avg_rate": r[5],
+                "net_pence": r[6],
+                "import_cost_pence": r[7],
+                "import_kwh": r[8],
+            }
+            for r in reversed(rows)
+        ]
+
     def upsert_solar_excess_batch(
         self, data: dict[datetime, float]
     ) -> None:
