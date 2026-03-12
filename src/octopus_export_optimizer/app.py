@@ -517,15 +517,20 @@ class Application:
         now = datetime.now(timezone.utc)
         today = date.today()
 
-        # Today
-        day_start, day_end = self.aggregator.day_boundaries(today)
-        day_intervals = self.revenue_repo.get_intervals(day_start, day_end)
-        day_import = self.revenue_repo.get_import_cost_intervals(day_start, day_end)
-        day_summary = self.aggregator.aggregate(
-            day_intervals, "day", today.isoformat(),
-            import_cost_intervals=day_import,
-        )
-        self.revenue_repo.upsert_summary(day_summary)
+        # Today + recent days (rebuilds any missing day summaries)
+        for days_ago in range(min(7, today.day), -1, -1):
+            target_date = today - timedelta(days=days_ago)
+            day_start, day_end = self.aggregator.day_boundaries(target_date)
+            day_intervals = self.revenue_repo.get_intervals(day_start, day_end)
+            day_import = self.revenue_repo.get_import_cost_intervals(
+                day_start, day_end
+            )
+            day_summary = self.aggregator.aggregate(
+                day_intervals, "day", target_date.isoformat(),
+                import_cost_intervals=day_import,
+            )
+            if day_summary.total_intervals > 0 or target_date == today:
+                self.revenue_repo.upsert_summary(day_summary)
 
         # This month
         month_start, month_end = self.aggregator.month_boundaries(
