@@ -107,8 +107,9 @@ class RevenueRepo:
                     avg_realised_rate_pence, intervals_above_flat,
                     total_intervals, calculated_at,
                     import_cost_pence, total_import_kwh, net_revenue_pence,
-                    charging_opportunity_cost_pence, true_profit_pence)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    charging_opportunity_cost_pence, true_profit_pence,
+                    flat_export_kwh, avg_flat_rate_pence)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     summary.period_type,
                     summary.period_key,
@@ -125,6 +126,8 @@ class RevenueRepo:
                     summary.net_revenue_pence,
                     summary.charging_opportunity_cost_pence,
                     summary.true_profit_pence,
+                    summary.flat_export_kwh,
+                    summary.avg_flat_rate_pence,
                 ),
             )
             self.db.conn.commit()
@@ -237,6 +240,17 @@ class RevenueRepo:
 
     @staticmethod
     def _row_to_summary(row: object) -> RevenueSummary:
+        # flat_export_kwh may be NULL for pre-migration rows
+        flat_export_kwh = None
+        try:
+            flat_export_kwh = row["flat_export_kwh"]
+        except (IndexError, KeyError):
+            pass
+        avg_flat_rate = 0.0
+        try:
+            avg_flat_rate = row["avg_flat_rate_pence"] or 0.0
+        except (IndexError, KeyError):
+            pass
         return RevenueSummary(
             period_type=row["period_type"],
             period_key=row["period_key"],
@@ -253,4 +267,6 @@ class RevenueRepo:
             net_revenue_pence=row["net_revenue_pence"] or 0.0,
             charging_opportunity_cost_pence=row["charging_opportunity_cost_pence"] or 0.0,
             true_profit_pence=row["true_profit_pence"] or 0.0,
+            flat_export_kwh=flat_export_kwh,
+            avg_flat_rate_pence=avg_flat_rate,
         )

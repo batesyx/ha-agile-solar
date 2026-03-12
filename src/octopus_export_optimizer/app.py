@@ -671,6 +671,8 @@ class Application:
                     true_profit_pence=estimate.true_profit_pence,
                 )
                 today_is_estimated = True
+                # Persist estimated summary so daily history chart has data
+                self.revenue_repo.upsert_summary(today_summary)
                 logger.debug(
                     "Using estimated today revenue: %.1fp from %.2f kWh (%d snapshots)",
                     estimate.agile_revenue_pence,
