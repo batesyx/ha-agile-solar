@@ -141,6 +141,33 @@ class RevenueRepo:
             ).fetchone()
         return self._row_to_summary(row) if row else None
 
+    def get_daily_summaries(self, days: int = 30) -> list[dict]:
+        """Get recent daily revenue summaries for charting."""
+        with self.db.lock:
+            rows = self.db.conn.execute(
+                """SELECT period_key, total_export_kwh,
+                          agile_revenue_pence, flat_revenue_pence,
+                          uplift_pence, avg_realised_rate_pence,
+                          net_revenue_pence
+                   FROM revenue_summaries
+                   WHERE period_type = 'day'
+                   ORDER BY period_key DESC
+                   LIMIT ?""",
+                (days,),
+            ).fetchall()
+        return [
+            {
+                "date": r[0],
+                "export_kwh": r[1],
+                "agile_pence": r[2],
+                "flat_pence": r[3],
+                "uplift_pence": r[4],
+                "avg_rate": r[5],
+                "net_pence": r[6],
+            }
+            for r in reversed(rows)
+        ]
+
     def upsert_solar_excess_batch(
         self, data: dict[datetime, float]
     ) -> None:

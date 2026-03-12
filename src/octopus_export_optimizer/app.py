@@ -687,6 +687,9 @@ class Application:
         rolling_30d = self.revenue_repo.get_summary("rolling_30d", "last_30d")
         self.mqtt_publisher.publish_rolling_revenue(rolling_7d, rolling_30d)
 
+        daily_history = self.revenue_repo.get_daily_summaries(30)
+        self.mqtt_publisher.publish_daily_revenue_history(daily_history)
+
         ha_state = self.ha_state_repo.get_latest()
         self.mqtt_publisher.publish_ha_state(ha_state)
 
