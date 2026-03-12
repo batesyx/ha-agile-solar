@@ -107,6 +107,12 @@ class HaStateIngester:
             return value / 1000.0
         return value
 
+    def get_solar_forecast_kwh(self, entity_id: str) -> float | None:
+        """Fetch a solar forecast value (kWh) from HA."""
+        if not entity_id:
+            return None
+        return self._get_float(entity_id)
+
     def __enter__(self) -> HaStateIngester:
         return self
 

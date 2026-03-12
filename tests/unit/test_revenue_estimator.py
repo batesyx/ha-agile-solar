@@ -339,3 +339,138 @@ class TestChargingOpportunityCost:
         assert result.true_profit_pence == pytest.approx(
             result.net_revenue_pence - result.charging_opportunity_cost_pence, abs=0.01
         )
+
+
+class TestFlatBaselineSolarExcess:
+    """Flat baseline should use solar excess (pv - load), not actual feed-in."""
+
+    def test_normal_export_flat_matches_solar_excess(self):
+        """When all solar excess goes to grid, flat ≈ old calculation."""
+        # pv=3, load=1 → solar_excess=2, feed_in=2 → same result
+        snapshots = [
+            _make_full_snapshot(10, 0, feed_in_kw=2.0, pv_power_kw=3.0, load_power_kw=1.0),
+            _make_full_snapshot(10, 5, feed_in_kw=2.0, pv_power_kw=3.0, load_power_kw=1.0),
+        ]
+        result = estimate_revenue(
+            snapshots, [_make_tariff(10)], _thresholds(),
+            datetime(2026, 3, 10, tzinfo=timezone.utc),
+        )
+        # solar_excess = 2kW × 5/60h = 0.1667 kWh × 12p = 2.0p
+        assert result.flat_export_kwh == pytest.approx(0.1667, abs=0.001)
+        assert result.flat_revenue_pence == pytest.approx(result.flat_export_kwh * 12.0, abs=0.01)
+
+    def test_charge_plan_solar_stored_flat_still_counts(self):
+        """Charge planner absorbs solar: feed_in=0 but flat counts full solar excess."""
+        # pv=3, load=1, battery_charge=2, feed_in=0 (all solar to battery)
+        snapshots = [
+            _make_full_snapshot(
+                10, 0, feed_in_kw=0.0, pv_power_kw=3.0,
+                load_power_kw=1.0, battery_charge_kw=2.0,
+            ),
+            _make_full_snapshot(
+                10, 5, feed_in_kw=0.0, pv_power_kw=3.0,
+                load_power_kw=1.0, battery_charge_kw=2.0,
+            ),
+        ]
+        result = estimate_revenue(
+            snapshots, [_make_tariff(10)], _thresholds(),
+            datetime(2026, 3, 10, tzinfo=timezone.utc),
+        )
+        # Agile export = 0 (feed_in=0)
+        assert result.export_kwh == 0.0
+        assert result.agile_revenue_pence == 0.0
+
+        # Flat baseline uses solar excess: pv(3) - load(1) = 2kW
+        # 2kW × 5/60h = 0.1667 kWh × 12p = 2.0p
+        assert result.flat_export_kwh == pytest.approx(0.1667, abs=0.001)
+        assert result.flat_revenue_pence == pytest.approx(2.0, abs=0.1)
+
+        # Uplift is negative (Agile earned 0, flat would have earned 2p)
+        assert result.uplift_pence < 0
+
+    def test_force_discharge_no_solar_flat_is_zero(self):
+        """Force Discharge at night: battery exports but flat wouldn't."""
+        # pv=0, load=0.5, battery_discharge=5, feed_in=4.5
+        snapshots = [
+            _make_full_snapshot(
+                18, 0, feed_in_kw=4.5, pv_power_kw=0.0,
+                load_power_kw=0.5, battery_discharge_kw=5.0,
+            ),
+            _make_full_snapshot(
+                18, 5, feed_in_kw=4.5, pv_power_kw=0.0,
+                load_power_kw=0.5, battery_discharge_kw=5.0,
+            ),
+        ]
+        tariff = TariffSlot(
+            interval_start=datetime(2026, 3, 10, 18, 0, tzinfo=timezone.utc),
+            interval_end=datetime(2026, 3, 10, 18, 30, tzinfo=timezone.utc),
+            rate_inc_vat_pence=20.0,
+            tariff_type="export",
+            product_code="AGILE",
+            provenance="actual",
+            fetched_at=datetime(2026, 3, 10, 18, 0, tzinfo=timezone.utc),
+        )
+        result = estimate_revenue(
+            snapshots, [tariff], _thresholds(),
+            datetime(2026, 3, 10, tzinfo=timezone.utc),
+        )
+        # Agile: 4.5kW × 5/60h = 0.375 kWh × 20p = 7.5p
+        assert result.export_kwh == pytest.approx(0.375, abs=0.001)
+        assert result.agile_revenue_pence == pytest.approx(7.5, abs=0.01)
+
+        # Flat: solar_excess = max(0, 0 - 0.5) = 0 → flat earns nothing
+        assert result.flat_export_kwh == 0.0
+        assert result.flat_revenue_pence == 0.0
+
+        # Uplift is positive (Agile earned 7.5p, flat would earn 0)
+        assert result.uplift_pence > 0
+
+    def test_no_pv_data_flat_is_zero(self):
+        """When PV data is None, solar excess defaults to 0."""
+        snapshots = [
+            HaStateSnapshot(
+                timestamp=datetime(2026, 3, 10, 10, 0, tzinfo=timezone.utc),
+                battery_soc_pct=50.0,
+                pv_power_kw=None,
+                feed_in_kw=2.0,
+                load_power_kw=None,
+                grid_consumption_kw=0.0,
+                battery_charge_kw=0.0,
+                battery_discharge_kw=0.0,
+            ),
+            HaStateSnapshot(
+                timestamp=datetime(2026, 3, 10, 10, 5, tzinfo=timezone.utc),
+                battery_soc_pct=50.0,
+                pv_power_kw=None,
+                feed_in_kw=2.0,
+                load_power_kw=None,
+                grid_consumption_kw=0.0,
+                battery_charge_kw=0.0,
+                battery_discharge_kw=0.0,
+            ),
+        ]
+        result = estimate_revenue(
+            snapshots, [_make_tariff(10)], _thresholds(),
+            datetime(2026, 3, 10, tzinfo=timezone.utc),
+        )
+        # Agile still uses feed_in
+        assert result.export_kwh > 0
+        # Flat = 0 (no PV data → solar excess = 0)
+        assert result.flat_export_kwh == 0.0
+        assert result.flat_revenue_pence == 0.0
+
+    def test_half_hour_solar_excess_bucketed(self):
+        """Solar excess is bucketed into half-hour intervals for persistence."""
+        # Two snapshots in the 10:00 half-hour
+        snapshots = [
+            _make_full_snapshot(10, 0, feed_in_kw=2.0, pv_power_kw=3.0, load_power_kw=1.0),
+            _make_full_snapshot(10, 5, feed_in_kw=2.0, pv_power_kw=3.0, load_power_kw=1.0),
+        ]
+        result = estimate_revenue(
+            snapshots, [_make_tariff(10)], _thresholds(),
+            datetime(2026, 3, 10, tzinfo=timezone.utc),
+        )
+        assert len(result.half_hour_solar_excess) == 1
+        key = datetime(2026, 3, 10, 10, 0, tzinfo=timezone.utc).isoformat()
+        assert key in result.half_hour_solar_excess
+        assert result.half_hour_solar_excess[key] == pytest.approx(0.1667, abs=0.001)

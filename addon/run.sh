@@ -29,6 +29,9 @@ MIN_OVERNIGHT_SOC=$(jq -r '.minimum_overnight_soc_pct // 0.40' "$CONFIG_PATH")
 SOLAR_MONTHS_MAX_SOC=$(jq -r '.solar_months_max_soc_pct // 0.80' "$CONFIG_PATH")
 WINTER_MAX_SOC=$(jq -r '.winter_max_soc_pct // 0.95' "$CONFIG_PATH")
 SOLAR_CHARGE_PER_SLOT=$(jq -r '.solar_charge_kwh_per_slot // 1.25' "$CONFIG_PATH")
+SOLAR_FORECAST_TODAY=$(jq -r '.solar_forecast_today_entity // ""' "$CONFIG_PATH")
+SOLAR_FORECAST_TOMORROW=$(jq -r '.solar_forecast_tomorrow_entity // ""' "$CONFIG_PATH")
+FORECAST_MIN_KWH=$(jq -r '.solar_forecast_minimum_kwh // 10.0' "$CONFIG_PATH")
 
 # HA Supervisor provides the token and URL automatically
 HA_TOKEN="${SUPERVISOR_TOKEN}"
@@ -104,6 +107,8 @@ home_assistant:
     min_soc: "number.min_soc"
     force_charge_power: "number.force_charge_power"
     force_discharge_power: "number.force_discharge_power"
+    solar_forecast_today: "${SOLAR_FORECAST_TODAY}"
+    solar_forecast_tomorrow: "${SOLAR_FORECAST_TOMORROW}"
 
 mqtt:
   broker: "${MQTT_HOST}"
@@ -124,6 +129,7 @@ inverter_control:
   solar_months_max_soc_pct: ${SOLAR_MONTHS_MAX_SOC}
   winter_max_soc_pct: ${WINTER_MAX_SOC}
   solar_charge_kwh_per_slot: ${SOLAR_CHARGE_PER_SLOT}
+  solar_forecast_minimum_kwh: ${FORECAST_MIN_KWH}
 
 db_path: "/data/optimizer.db"
 log_level: "INFO"

@@ -114,6 +114,7 @@ class InverterControlSettings(BaseModel):
     solar_months_max_soc_pct: float = 0.80  # Max overnight charge Mar-Sep
     winter_max_soc_pct: float = 0.95  # Max overnight charge Oct-Feb
     solar_charge_kwh_per_slot: float = 2.0  # kWh per 30-min solar slot
+    solar_forecast_minimum_kwh: float = 10.0  # Min forecast kWh to reduce overnight charge
 
 
 class HaEntityIds(BaseModel):
@@ -131,6 +132,8 @@ class HaEntityIds(BaseModel):
     min_soc: str = "number.fox_ess_min_soc"
     force_charge_power: str = "number.fox_ess_force_charge_power"
     force_discharge_power: str = "number.fox_ess_force_discharge_power"
+    solar_forecast_today: str = ""  # e.g. sensor.energy_production_today
+    solar_forecast_tomorrow: str = ""  # e.g. sensor.energy_production_tomorrow
 
 
 class HaSettings(BaseModel):

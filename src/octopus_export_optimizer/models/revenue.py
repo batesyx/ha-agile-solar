@@ -23,6 +23,7 @@ class RevenueInterval(BaseModel):
     flat_revenue_pence: float
     uplift_pence: float  # agile_revenue - flat_revenue
     calculated_at: datetime
+    flat_export_kwh: float | None = None  # Solar excess counterfactual kWh
 
     @property
     def is_uplift_positive(self) -> bool:

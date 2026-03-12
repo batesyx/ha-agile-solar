@@ -394,6 +394,8 @@ class MqttPublisher:
     def publish_overnight_target(
         self,
         target: object | None,
+        solar_forecast_kwh: float | None = None,
+        forecast_minimum_kwh: float | None = None,
     ) -> None:
         """Publish solar-aware overnight charge target sensors."""
         if target is not None:
@@ -415,21 +417,44 @@ class MqttPublisher:
                 retain=True,
             )
             # Build human-readable detail
+            forecast_suffix = ""
+            if solar_forecast_kwh is not None:
+                forecast_suffix = f" Solar forecast: {solar_forecast_kwh:.1f} kWh."
             if target.headroom_kwh > 0:
                 detail = (
                     f"Charging to {target_pct:.0f}% (reduced from {seasonal_pct:.0f}%) — "
                     f"{target.solar_opportunity_slots} low-rate solar slots tomorrow, "
                     f"leaving {target.headroom_kwh:.1f} kWh headroom for free solar charging. "
                     f"Est. saving {target.estimated_savings_pence:.1f}p on overnight import."
+                    f"{forecast_suffix}"
                 )
             else:
                 detail = (
                     f"Full charge to {target_pct:.0f}% — "
                     f"tomorrow's export rates are strong, limited solar charging opportunity."
+                    f"{forecast_suffix}"
                 )
             self._publish(
                 f"{self.prefix}/control/overnight_detail",
                 detail,
+                retain=True,
+            )
+        elif solar_forecast_kwh is not None and forecast_minimum_kwh is not None:
+            # Forecast gate fired — no OvernightChargeTarget but we have a reason
+            seasonal_pct = forecast_minimum_kwh  # Reuse for display
+            self._publish(
+                f"{self.prefix}/control/overnight_charge_target", "N/A", retain=True,
+            )
+            self._publish(
+                f"{self.prefix}/control/overnight_solar_slots", "0", retain=True,
+            )
+            self._publish(
+                f"{self.prefix}/control/overnight_savings", "0.0", retain=True,
+            )
+            self._publish(
+                f"{self.prefix}/control/overnight_detail",
+                f"Forecast {solar_forecast_kwh:.1f} kWh < {forecast_minimum_kwh:.1f} kWh minimum — "
+                f"charging to seasonal max, insufficient solar expected.",
                 retain=True,
             )
         else:

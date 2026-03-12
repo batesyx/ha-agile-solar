@@ -26,6 +26,7 @@ class RevenueCalculator:
         meter: MeterInterval,
         tariff: TariffSlot,
         now: datetime | None = None,
+        solar_excess_kwh: float | None = None,
     ) -> RevenueInterval:
         """Calculate revenue for a single half-hour interval.
 
@@ -33,12 +34,16 @@ class RevenueCalculator:
             meter: Metered export data for the interval.
             tariff: Agile export rate for the interval.
             now: Override for calculated_at timestamp.
+            solar_excess_kwh: If available, used for the flat baseline
+                instead of meter.kwh.  Models what a flat tariff would
+                export (all solar excess, no battery management).
         """
         agile_revenue = meter.kwh * tariff.rate_inc_vat_pence
         flat_rate = self.thresholds.get_flat_rate_for_date(
             meter.interval_start.date()
         )
-        flat_revenue = meter.kwh * flat_rate
+        flat_base_kwh = solar_excess_kwh if solar_excess_kwh is not None else meter.kwh
+        flat_revenue = flat_base_kwh * flat_rate
         uplift = agile_revenue - flat_revenue
 
         return RevenueInterval(
@@ -50,17 +55,25 @@ class RevenueCalculator:
             flat_revenue_pence=round(flat_revenue, 4),
             uplift_pence=round(uplift, 4),
             calculated_at=now or datetime.now(timezone.utc),
+            flat_export_kwh=round(flat_base_kwh, 4) if solar_excess_kwh is not None else None,
         )
 
     def calculate_batch(
         self,
         meters: list[MeterInterval],
         tariffs: list[TariffSlot],
+        solar_excess_map: dict[datetime, float] | None = None,
     ) -> list[RevenueInterval]:
         """Calculate revenue for a batch of intervals.
 
         Joins meters and tariffs by interval_start. Intervals
         without a matching tariff are skipped.
+
+        Args:
+            meters: Metered export data.
+            tariffs: Agile export rates.
+            solar_excess_map: Optional map of interval_start → solar
+                excess kWh for fair flat baseline calculation.
         """
         tariff_map = {t.interval_start: t for t in tariffs}
         now = datetime.now(timezone.utc)
@@ -70,7 +83,16 @@ class RevenueCalculator:
             tariff = tariff_map.get(meter.interval_start)
             if tariff is None:
                 continue
-            results.append(self.calculate_interval(meter, tariff, now=now))
+            solar_kwh = (
+                solar_excess_map.get(meter.interval_start)
+                if solar_excess_map
+                else None
+            )
+            results.append(
+                self.calculate_interval(
+                    meter, tariff, now=now, solar_excess_kwh=solar_kwh,
+                )
+            )
 
         return results
 

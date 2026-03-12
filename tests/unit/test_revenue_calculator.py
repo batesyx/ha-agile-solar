@@ -122,6 +122,81 @@ class TestCalculateBatch:
         assert results[1].interval_start == start2
 
 
+class TestSolarExcessFlatBaseline:
+    """Flat baseline uses stored solar excess when available."""
+
+    def test_solar_excess_used_for_flat_baseline(self, calculator):
+        """When solar excess is provided, flat uses it instead of meter kWh."""
+        meter = make_meter_interval(kwh=5.0)  # Battery Force Discharge
+        tariff = make_tariff_slot(
+            interval_start=meter.interval_start, rate_pence=20.0
+        )
+
+        # Solar excess for this interval was only 1.0 kWh
+        result = calculator.calculate_interval(
+            meter, tariff, solar_excess_kwh=1.0,
+        )
+
+        assert result.export_kwh == 5.0  # Actual export unchanged
+        assert result.agile_revenue_pence == 100.0  # 5 × 20p
+        assert result.flat_export_kwh == 1.0  # Solar excess used for flat
+        assert result.flat_revenue_pence == 12.0  # 1.0 × 12p (not 5 × 12p)
+        assert result.uplift_pence == 88.0  # 100 - 12
+
+    def test_no_solar_excess_falls_back_to_meter(self, calculator):
+        """Without solar excess data, flat uses meter kWh (old behavior)."""
+        meter = make_meter_interval(kwh=2.0)
+        tariff = make_tariff_slot(
+            interval_start=meter.interval_start, rate_pence=20.0
+        )
+
+        result = calculator.calculate_interval(meter, tariff)
+
+        assert result.flat_export_kwh is None
+        assert result.flat_revenue_pence == 24.0  # 2.0 × 12p
+
+    def test_batch_with_solar_excess_map(self, calculator):
+        """calculate_batch uses solar_excess_map for flat baseline."""
+        start1 = datetime(2026, 3, 9, 12, 0, tzinfo=timezone.utc)
+        start2 = datetime(2026, 3, 9, 12, 30, tzinfo=timezone.utc)
+
+        meters = [
+            make_meter_interval(interval_start=start1, kwh=3.0),
+            make_meter_interval(interval_start=start2, kwh=4.0),
+        ]
+        tariffs = [
+            make_tariff_slot(interval_start=start1, rate_pence=20.0),
+            make_tariff_slot(interval_start=start2, rate_pence=20.0),
+        ]
+        solar_excess_map = {start1: 1.5}  # Only have data for first interval
+
+        results = calculator.calculate_batch(
+            meters, tariffs, solar_excess_map=solar_excess_map,
+        )
+
+        assert len(results) == 2
+        # First interval: uses solar excess
+        assert results[0].flat_export_kwh == 1.5
+        assert results[0].flat_revenue_pence == 18.0  # 1.5 × 12p
+        # Second interval: falls back to meter kWh
+        assert results[1].flat_export_kwh is None
+        assert results[1].flat_revenue_pence == 48.0  # 4.0 × 12p
+
+    def test_zero_solar_excess_means_no_flat_export(self, calculator):
+        """Zero solar excess (e.g., night) → flat revenue = 0."""
+        meter = make_meter_interval(kwh=5.0)  # Force Discharge at night
+        tariff = make_tariff_slot(
+            interval_start=meter.interval_start, rate_pence=20.0
+        )
+
+        result = calculator.calculate_interval(
+            meter, tariff, solar_excess_kwh=0.0,
+        )
+
+        assert result.flat_revenue_pence == 0.0
+        assert result.uplift_pence == 100.0  # All Agile revenue is uplift
+
+
 class TestCalculateImportCostBatch:
     def test_joins_by_interval_start(self, calculator):
         start1 = datetime(2026, 3, 9, 12, 0, tzinfo=timezone.utc)

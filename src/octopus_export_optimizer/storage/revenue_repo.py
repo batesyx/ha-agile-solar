@@ -29,8 +29,8 @@ class RevenueRepo:
                     """INSERT OR REPLACE INTO revenue_intervals
                        (interval_start, export_kwh, agile_rate_pence,
                         agile_revenue_pence, flat_rate_pence, flat_revenue_pence,
-                        uplift_pence, calculated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        uplift_pence, calculated_at, flat_export_kwh)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         interval.interval_start.isoformat(),
                         interval.export_kwh,
@@ -40,6 +40,7 @@ class RevenueRepo:
                         interval.flat_revenue_pence,
                         interval.uplift_pence,
                         interval.calculated_at.isoformat(),
+                        interval.flat_export_kwh,
                     ),
                 )
             self.db.conn.commit()
@@ -140,8 +141,51 @@ class RevenueRepo:
             ).fetchone()
         return self._row_to_summary(row) if row else None
 
+    def upsert_solar_excess_batch(
+        self, data: dict[datetime, float]
+    ) -> None:
+        """Upsert multiple solar excess measurements for half-hour intervals."""
+        if not data:
+            return
+        now = datetime.utcnow().isoformat()
+        with self.db.lock:
+            cursor = self.db.conn.cursor()
+            for interval_start, kwh in data.items():
+                cursor.execute(
+                    """INSERT OR REPLACE INTO solar_excess_intervals
+                       (interval_start, solar_excess_kwh, calculated_at)
+                       VALUES (?, ?, ?)""",
+                    (interval_start.isoformat(), round(kwh, 6), now),
+                )
+            self.db.conn.commit()
+
+    def get_solar_excess_batch(
+        self, starts: list[datetime]
+    ) -> dict[datetime, float]:
+        """Get solar excess for multiple intervals. Returns map of start → kWh."""
+        if not starts:
+            return {}
+        with self.db.lock:
+            placeholders = ",".join("?" for _ in starts)
+            rows = self.db.conn.execute(
+                f"""SELECT interval_start, solar_excess_kwh
+                    FROM solar_excess_intervals
+                    WHERE interval_start IN ({placeholders})""",
+                [s.isoformat() for s in starts],
+            ).fetchall()
+        return {
+            datetime.fromisoformat(r["interval_start"]): r["solar_excess_kwh"]
+            for r in rows
+        }
+
     @staticmethod
     def _row_to_interval(row: object) -> RevenueInterval:
+        # flat_export_kwh may be NULL for pre-migration rows
+        flat_export_kwh = None
+        try:
+            flat_export_kwh = row["flat_export_kwh"]
+        except (IndexError, KeyError):
+            pass
         return RevenueInterval(
             interval_start=datetime.fromisoformat(row["interval_start"]),
             export_kwh=row["export_kwh"],
@@ -151,6 +195,7 @@ class RevenueRepo:
             flat_revenue_pence=row["flat_revenue_pence"],
             uplift_pence=row["uplift_pence"],
             calculated_at=datetime.fromisoformat(row["calculated_at"]),
+            flat_export_kwh=flat_export_kwh,
         )
 
     @staticmethod

@@ -267,7 +267,12 @@ class Application:
         # Export revenue
         meters = self.meter_repo.get_export_intervals(start, end)
         tariffs = self.tariff_repo.get_export_rates(start, end)
-        intervals = self.revenue_calculator.calculate_batch(meters, tariffs)
+        solar_excess_map = self.revenue_repo.get_solar_excess_batch(
+            [m.interval_start for m in meters]
+        )
+        intervals = self.revenue_calculator.calculate_batch(
+            meters, tariffs, solar_excess_map=solar_excess_map or None,
+        )
         if intervals:
             self.revenue_repo.upsert_intervals(intervals)
             logger.info("Calculated revenue for %d export intervals", len(intervals))
@@ -332,23 +337,13 @@ class Application:
         # Calculate solar-aware overnight charge target
         overnight_target: float | None = None
         self._current_overnight_target = None
+        self._solar_forecast_kwh: float | None = None
         ic = self.settings.inverter_control
         if ic.solar_overnight_enabled:
             target_date = (
                 (now + timedelta(days=1)).date()
                 if now.hour >= 16
                 else now.date()
-            )
-            solar_start = datetime(
-                target_date.year, target_date.month, target_date.day,
-                11, 0, tzinfo=timezone.utc,
-            )
-            solar_end = datetime(
-                target_date.year, target_date.month, target_date.day,
-                16, 0, tzinfo=timezone.utc,
-            )
-            solar_hour_rates = self.tariff_repo.get_export_rates(
-                solar_start, solar_end
             )
 
             seasonal_max = (
@@ -357,36 +352,72 @@ class Application:
                 else ic.winter_max_soc_pct
             )
 
-            if solar_hour_rates:
-                from octopus_export_optimizer.calculations.overnight_target import (
-                    calculate_overnight_charge_target,
-                )
-                ot_result = calculate_overnight_charge_target(
-                    solar_hour_rates=solar_hour_rates,
-                    night_import_rate_pence=self.settings.thresholds.cheap_import_threshold_pence,
-                    battery_capacity_kwh=self.settings.battery.capacity_kwh,
-                    minimum_overnight_soc_pct=ic.minimum_overnight_soc_pct,
-                    seasonal_max_soc_pct=seasonal_max,
-                    solar_charge_kwh_per_slot=ic.solar_charge_kwh_per_slot,
-                )
-                if ot_result:
-                    overnight_target = ot_result.target_soc_pct
-                    self._current_overnight_target = ot_result
-                    logger.info(
-                        "Overnight target: %.0f%% (%d solar slots, "
-                        "%.1fp est. savings, %.1f kWh headroom)",
-                        ot_result.target_soc_pct * 100,
-                        ot_result.solar_opportunity_slots,
-                        ot_result.estimated_savings_pence,
-                        ot_result.headroom_kwh,
-                    )
-            else:
-                # No rate data — still apply seasonal cap
+            # Check solar forecast — skip overnight reduction if poor forecast
+            forecast_entity = (
+                self.settings.home_assistant.entity_ids.solar_forecast_tomorrow
+                if now.hour >= 16
+                else self.settings.home_assistant.entity_ids.solar_forecast_today
+            )
+            solar_forecast_kwh = self.ha_state_ingester.get_solar_forecast_kwh(
+                forecast_entity
+            )
+            self._solar_forecast_kwh = solar_forecast_kwh
+
+            if (
+                solar_forecast_kwh is not None
+                and solar_forecast_kwh < ic.solar_forecast_minimum_kwh
+            ):
                 overnight_target = seasonal_max
                 logger.info(
-                    "Overnight target: %.0f%% (seasonal baseline, no rate data)",
+                    "Overnight target: %.0f%% (forecast %.1f kWh < %.1f kWh minimum)",
                     seasonal_max * 100,
+                    solar_forecast_kwh,
+                    ic.solar_forecast_minimum_kwh,
                 )
+            else:
+                # Rate-based overnight target calculation
+                solar_start = datetime(
+                    target_date.year, target_date.month, target_date.day,
+                    11, 0, tzinfo=timezone.utc,
+                )
+                solar_end = datetime(
+                    target_date.year, target_date.month, target_date.day,
+                    16, 0, tzinfo=timezone.utc,
+                )
+                solar_hour_rates = self.tariff_repo.get_export_rates(
+                    solar_start, solar_end
+                )
+
+                if solar_hour_rates:
+                    from octopus_export_optimizer.calculations.overnight_target import (
+                        calculate_overnight_charge_target,
+                    )
+                    ot_result = calculate_overnight_charge_target(
+                        solar_hour_rates=solar_hour_rates,
+                        night_import_rate_pence=self.settings.thresholds.cheap_import_threshold_pence,
+                        battery_capacity_kwh=self.settings.battery.capacity_kwh,
+                        minimum_overnight_soc_pct=ic.minimum_overnight_soc_pct,
+                        seasonal_max_soc_pct=seasonal_max,
+                        solar_charge_kwh_per_slot=ic.solar_charge_kwh_per_slot,
+                    )
+                    if ot_result:
+                        overnight_target = ot_result.target_soc_pct
+                        self._current_overnight_target = ot_result
+                        logger.info(
+                            "Overnight target: %.0f%% (%d solar slots, "
+                            "%.1fp est. savings, %.1f kWh headroom)",
+                            ot_result.target_soc_pct * 100,
+                            ot_result.solar_opportunity_slots,
+                            ot_result.estimated_savings_pence,
+                            ot_result.headroom_kwh,
+                        )
+                else:
+                    # No rate data — still apply seasonal cap
+                    overnight_target = seasonal_max
+                    logger.info(
+                        "Overnight target: %.0f%% (seasonal baseline, no rate data)",
+                        seasonal_max * 100,
+                    )
 
         snapshot = self.engine.build_snapshot(
             now=now,
@@ -579,7 +610,9 @@ class Application:
         self.mqtt_publisher.publish_recommendation(rec)
         self.mqtt_publisher.publish_export_plan(rec, self._current_export_plan, now)
         self.mqtt_publisher.publish_overnight_target(
-            getattr(self, "_current_overnight_target", None)
+            getattr(self, "_current_overnight_target", None),
+            solar_forecast_kwh=getattr(self, "_solar_forecast_kwh", None),
+            forecast_minimum_kwh=self.settings.inverter_control.solar_forecast_minimum_kwh,
         )
         self.mqtt_publisher.publish_charge_plan(
             getattr(self, "_current_charge_plan", None)
@@ -601,6 +634,15 @@ class Application:
                 day_snapshots, day_tariffs, self.settings.thresholds, now,
                 import_tariff_slots=day_import_tariffs if day_import_tariffs else None,
             )
+            # Persist solar excess data for settled calculator
+            if estimate.half_hour_solar_excess:
+                self.revenue_repo.upsert_solar_excess_batch(
+                    {
+                        datetime.fromisoformat(k): v
+                        for k, v in estimate.half_hour_solar_excess.items()
+                    }
+                )
+
             if estimate.export_kwh > 0:
                 from octopus_export_optimizer.models.revenue import RevenueSummary
 
