@@ -43,6 +43,7 @@ class ExportHandler(BaseHTTPRequestHandler):
             "/api/export/snapshots": self._export_snapshots,
             "/api/export/commands": self._export_commands,
             "/api/export/database": self._export_database,
+            "/api/revenue/daily": self._revenue_daily,
             "/api/status": self._status,
         }
 
@@ -181,6 +182,40 @@ class ExportHandler(BaseHTTPRequestHandler):
         columns = ["timestamp", "previous_mode", "new_mode", "target_max_soc",
                     "recommendation_state", "reason_code", "success", "error"]
         self._send_table(rows, columns, fmt, "commands")
+
+    def _revenue_daily(self, params: dict) -> None:
+        """Return daily revenue summaries as JSON for charting."""
+        days = int(params.get("days", ["30"])[0])
+        with self.db.lock:
+            rows = self.db.conn.execute(
+                """SELECT period_key, total_export_kwh,
+                          agile_revenue_pence, flat_revenue_pence,
+                          uplift_pence, avg_realised_rate_pence,
+                          import_cost_pence, total_import_kwh,
+                          net_revenue_pence, true_profit_pence
+                   FROM revenue_summaries
+                   WHERE period_type = 'day'
+                   ORDER BY period_key DESC
+                   LIMIT ?""",
+                (days,),
+            ).fetchall()
+
+        data = [
+            {
+                "date": r[0],
+                "export_kwh": r[1],
+                "agile_pence": r[2],
+                "flat_pence": r[3],
+                "uplift_pence": r[4],
+                "avg_rate_pence": r[5],
+                "import_cost_pence": r[6],
+                "import_kwh": r[7],
+                "net_revenue_pence": r[8],
+                "true_profit_pence": r[9],
+            }
+            for r in reversed(rows)  # Oldest first for charting
+        ]
+        self._send_json(200, {"data": data, "count": len(data)})
 
     def _export_database(self, params: dict) -> None:
         """Download the raw SQLite database file."""

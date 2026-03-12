@@ -69,7 +69,9 @@ class Aggregator:
             if flat_excess_intervals
             else None
         )
-        avg_flat_rate = flat_rev / total_kwh if total_kwh > 0 else 0.0
+        # Use the most common flat rate across intervals (typically one rate per period)
+        flat_rates = [i.flat_rate_pence for i in intervals]
+        avg_flat_rate = max(set(flat_rates), key=flat_rates.count) if flat_rates else 0.0
 
         # Import cost aggregation
         import_cost = 0.0

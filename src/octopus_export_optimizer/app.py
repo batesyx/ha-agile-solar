@@ -646,6 +646,7 @@ class Application:
             if estimate.export_kwh > 0:
                 from octopus_export_optimizer.models.revenue import RevenueSummary
 
+                flat_rate = self.settings.thresholds.get_flat_rate_for_date(today)
                 today_summary = RevenueSummary(
                     period_type="day",
                     period_key=today.isoformat(),
@@ -661,6 +662,8 @@ class Application:
                     intervals_above_flat=0,
                     total_intervals=0,
                     calculated_at=now,
+                    flat_export_kwh=estimate.flat_export_kwh,
+                    avg_flat_rate_pence=flat_rate,
                     import_cost_pence=estimate.import_cost_pence,
                     total_import_kwh=estimate.import_kwh,
                     net_revenue_pence=estimate.net_revenue_pence,
