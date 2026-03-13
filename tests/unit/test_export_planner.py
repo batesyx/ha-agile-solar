@@ -89,12 +89,17 @@ class TestBuildExportPlan:
         assert plan is not None
         assert plan.discharge_kw <= 5.0
 
-    def test_uniform_power_across_slots(self):
+    def test_highest_rate_slots_get_max_power(self):
         slots = [_slot(1, 25), _slot(2, 30), _slot(3, 20)]
         plan = _plan(exportable=6.0, slots=slots, max_kw=5.0)
         assert plan is not None
-        powers = {s.discharge_kw for s in plan.planned_slots}
-        assert len(powers) == 1  # all slots same power
+        # 6 × sqrt(0.90) ≈ 5.69 kWh, ceil(5.69/2.5) = 3 slots
+        # Best two slots (30p, 25p) get max 2.5 kWh each at 5 kW
+        # Last slot (20p) gets remainder ≈ 0.69 kWh at ~1.38 kW
+        by_rate = sorted(plan.planned_slots, key=lambda s: s.rate_pence, reverse=True)
+        assert by_rate[0].discharge_kw == 5.0  # 30p slot: max power
+        assert by_rate[1].discharge_kw == 5.0  # 25p slot: max power
+        assert by_rate[2].discharge_kw < 5.0   # 20p slot: reduced
 
     def test_more_energy_than_slots_uses_all_slots(self):
         slots = [_slot(1, 25), _slot(2, 20)]

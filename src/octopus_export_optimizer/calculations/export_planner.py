@@ -69,22 +69,28 @@ def build_export_plan(
     selected = eligible[:slots_needed]
     selected_count = len(selected)
 
-    # Calculate uniform discharge rate across selected slots
-    actual_kw = effective_kwh / (selected_count * 0.5)
-    actual_kw = min(actual_kw, max_discharge_kw)
+    # Allocate energy to highest-rate slots first at max power
+    remaining = effective_kwh
+    allocations = []
+    for slot in selected:  # already sorted by rate desc
+        alloc_kwh = min(remaining, max_kwh_per_slot)
+        allocations.append((slot, alloc_kwh))
+        remaining -= alloc_kwh
 
     # Build planned slots, sorted by time for easy lookup
     planned = []
-    for slot in sorted(selected, key=lambda s: s.interval_start):
+    for slot, kwh in sorted(allocations, key=lambda x: x[0].interval_start):
+        kw = min(kwh / 0.5, max_discharge_kw)
         planned.append(PlannedSlot(
             interval_start=slot.interval_start,
             interval_end=slot.interval_end,
             rate_pence=slot.rate_inc_vat_pence,
-            discharge_kw=round(actual_kw, 3),
-            expected_kwh=round(actual_kw * 0.5, 4),
+            discharge_kw=round(kw, 3),
+            expected_kwh=round(kwh, 4),
         ))
 
-    total_kwh = round(actual_kw * 0.5 * selected_count, 4)
+    total_kwh = round(sum(kwh for _, kwh in allocations), 4)
+    actual_kw = max(s.discharge_kw for s in planned)
 
     return ExportPlan(
         created_at=datetime.now(timezone.utc),
