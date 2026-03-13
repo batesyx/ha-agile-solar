@@ -262,7 +262,7 @@ class MqttPublisher:
         topic_base: str,
         slots: list[TariffSlot],
         current_time: datetime | None,
-        planned_starts: dict[str, float] | None = None,
+        planned_starts: dict[str, tuple[float, float]] | None = None,
         charging_starts: set[str] | None = None,
     ) -> None:
         """Publish a rate schedule: JSON to attributes topic, count to state topic."""
@@ -296,7 +296,7 @@ class MqttPublisher:
         export_slots: list[TariffSlot],
         import_slots: list[TariffSlot] | None = None,
         current_time: datetime | None = None,
-        planned_starts: dict[str, float] | None = None,
+        planned_starts: dict[str, tuple[float, float]] | None = None,
         charging_starts: set[str] | None = None,
     ) -> None:
         """Publish forward-looking rate schedule (now → 48h) for charting."""
