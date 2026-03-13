@@ -77,6 +77,12 @@ def build_export_plan(
         allocations.append((slot, alloc_kwh))
         remaining -= alloc_kwh
 
+    # Drop partial slots with < 0.5 kWh — not worth a whole slot
+    allocations = [(s, kwh) for s, kwh in allocations if kwh >= 0.5]
+
+    if not allocations:
+        return None
+
     # Build planned slots, sorted by time for easy lookup
     planned = []
     for slot, kwh in sorted(allocations, key=lambda x: x[0].interval_start):

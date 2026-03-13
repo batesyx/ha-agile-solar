@@ -50,12 +50,14 @@ class TestRateSchedulePayload:
             interval_start=datetime(2026, 3, 9, 12, 30, tzinfo=timezone.utc),
             rate_pence=25.0,
         )
-        planned = {s1.interval_start.isoformat()}
+        planned = {s1.interval_start.isoformat(): 5.0}
         payload = json.loads(
             PayloadBuilder.rate_schedule_payload([s1, s2], planned_starts=planned)
         )
         assert payload["rates"][0]["planned"] is True
+        assert payload["rates"][0]["discharge_kw"] == 5.0
         assert payload["rates"][1]["planned"] is False
+        assert payload["rates"][1]["discharge_kw"] is None
 
     def test_no_planned_starts_all_false(self):
         s1 = make_tariff_slot(rate_pence=20.0)

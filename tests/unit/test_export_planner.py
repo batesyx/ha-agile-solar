@@ -78,8 +78,8 @@ class TestBuildExportPlan:
 
     def test_energy_budget_limits_slot_count(self):
         slots = [_slot(i, 20 + i) for i in range(1, 7)]  # 6 slots
-        # 3 kWh / (5 × 0.5) = ceil(3/2.5) = 2 slots needed
-        plan = _plan(exportable=3.0, slots=slots, max_kw=5.0)
+        # 5 kWh × sqrt(0.90) ≈ 4.74, ceil(4.74/2.5) = 2 slots
+        plan = _plan(exportable=5.0, slots=slots, max_kw=5.0)
         assert plan is not None
         assert len(plan.planned_slots) == 2
 

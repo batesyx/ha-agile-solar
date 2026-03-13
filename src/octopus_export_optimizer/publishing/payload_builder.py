@@ -93,7 +93,7 @@ class PayloadBuilder:
     def rate_schedule_payload(
         slots: list[TariffSlot],
         current_time: datetime | None = None,
-        planned_starts: set[str] | None = None,
+        planned_starts: dict[str, float] | None = None,
         charging_starts: set[str] | None = None,
     ) -> str:
         """Build a JSON payload with today's rate schedule for charting.
@@ -101,10 +101,10 @@ class PayloadBuilder:
         Publishes as a JSON object with 'rates' array and metadata,
         suitable for HA sensor attributes + ApexCharts data_generator.
 
-        If planned_starts is provided, each rate entry includes a
-        'planned' boolean indicating whether the slot is targeted
-        by the export planner. If charging_starts is provided, a
-        'charging' boolean indicates solar charging windows.
+        If planned_starts is provided (mapping start_iso → discharge_kw),
+        each rate entry includes a 'planned' boolean and 'discharge_kw'
+        float. If charging_starts is provided, a 'charging' boolean
+        indicates solar charging windows.
         """
         if not slots:
             return json.dumps({"rates": [], "count": 0})
@@ -112,13 +112,15 @@ class PayloadBuilder:
         rates = []
         for slot in sorted(slots, key=lambda s: s.interval_start):
             iso = slot.interval_start.isoformat()
+            is_planned = planned_starts is not None and iso in planned_starts
             entry: dict = {
                 "start": slot.interval_start.strftime("%H:%M"),
                 "end": slot.interval_end.strftime("%H:%M"),
                 "rate": round(slot.rate_inc_vat_pence, 2),
                 "start_iso": iso,
-                "planned": (
-                    planned_starts is not None and iso in planned_starts
+                "planned": is_planned,
+                "discharge_kw": (
+                    planned_starts[iso] if is_planned else None
                 ),
                 "charging": (
                     charging_starts is not None and iso in charging_starts

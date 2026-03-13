@@ -594,10 +594,10 @@ class Application:
         upcoming_end = now + timedelta(hours=48)
         upcoming_export = self.tariff_repo.get_export_rates(now, upcoming_end)
         upcoming_import = self.tariff_repo.get_import_rates(now, upcoming_end)
-        planned_starts: set[str] | None = None
+        planned_starts: dict[str, float] | None = None
         if self._current_export_plan:
             planned_starts = {
-                s.interval_start.isoformat()
+                s.interval_start.isoformat(): s.discharge_kw
                 for s in self._current_export_plan.planned_slots
             }
         charging_starts: set[str] | None = None
