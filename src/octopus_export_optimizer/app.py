@@ -261,8 +261,10 @@ class Application:
     def job_calculate_revenue(self) -> None:
         """Calculate revenue for intervals that have both meter and tariff data."""
         now = datetime.now(timezone.utc)
-        # Look back 72 hours to catch delayed meter data
-        start, end = self.aggregator.rolling_boundaries(3, now)
+        # Look back to start of month to cover any gaps (meter data may arrive late)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        start = month_start
+        end = now
 
         # Export revenue
         meters = self.meter_repo.get_export_intervals(start, end)
