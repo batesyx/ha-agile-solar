@@ -2,8 +2,11 @@
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from octopus_export_optimizer.calculations.overnight_target import (
     OvernightChargeTarget,
+    calculate_overnight_charge_power,
     calculate_overnight_charge_target,
 )
 from tests.factories import make_tariff_slot
@@ -197,3 +200,148 @@ class TestHeadroomCapping:
         # headroom should be capacity × (seasonal_max - target)
         max_possible = 11.52 * (0.80 - 0.40)
         assert result.headroom_kwh <= max_possible + 0.01
+
+
+class TestCalculateOvernightChargePower:
+    """Tests for static trickle charge power calculation."""
+
+    # Default window: 23:30 to 05:30 = 6 hours, minus 30 min buffer = 5.5 hours
+    _WINDOW = dict(cheap_rate_start_hour=23.5, cheap_rate_end_hour=5.5)
+
+    def test_basic_calculation(self):
+        """10% → 80% over 5.5 hours = ~1.47 kW."""
+        power = calculate_overnight_charge_power(
+            current_soc_pct=0.10,
+            target_soc_pct=0.80,
+            battery_capacity_kwh=11.52,
+            **self._WINDOW,
+        )
+        # 8.064 kWh / 5.5h ≈ 1.47 kW
+        assert 1.3 < power < 1.7
+
+    def test_full_charge_10_to_95(self):
+        """10% → 95% over 5.5 hours = ~1.78 kW."""
+        power = calculate_overnight_charge_power(
+            current_soc_pct=0.10,
+            target_soc_pct=0.95,
+            battery_capacity_kwh=11.52,
+            **self._WINDOW,
+        )
+        # 9.792 kWh / 5.5h ≈ 1.78 kW
+        assert 1.6 < power < 2.0
+
+    def test_already_at_target_returns_min(self):
+        power = calculate_overnight_charge_power(
+            current_soc_pct=0.80,
+            target_soc_pct=0.80,
+            battery_capacity_kwh=11.52,
+            **self._WINDOW,
+        )
+        assert power == 0.5
+
+    def test_above_target_returns_min(self):
+        power = calculate_overnight_charge_power(
+            current_soc_pct=0.90,
+            target_soc_pct=0.80,
+            battery_capacity_kwh=11.52,
+            **self._WINDOW,
+        )
+        assert power == 0.5
+
+    def test_clamped_to_min(self):
+        """Small energy needed → floor at min_power_kw."""
+        power = calculate_overnight_charge_power(
+            current_soc_pct=0.78,
+            target_soc_pct=0.80,
+            battery_capacity_kwh=11.52,
+            **self._WINDOW,
+        )
+        assert power == 0.5
+
+    def test_clamped_to_max(self):
+        """Huge energy in tiny window → cap at max_power_kw."""
+        power = calculate_overnight_charge_power(
+            current_soc_pct=0.10,
+            target_soc_pct=0.95,
+            battery_capacity_kwh=11.52,
+            cheap_rate_start_hour=5.0,
+            cheap_rate_end_hour=5.5,
+            buffer_minutes=25,
+        )
+        assert power == 5.0
+
+    def test_static_regardless_of_time_in_window(self):
+        """Same SoC and target always produces the same power."""
+        kwargs = dict(
+            current_soc_pct=0.30,
+            target_soc_pct=0.80,
+            battery_capacity_kwh=11.52,
+            **self._WINDOW,
+        )
+        power = calculate_overnight_charge_power(**kwargs)
+        # Call again — same result (no time dependency)
+        power2 = calculate_overnight_charge_power(**kwargs)
+        assert power == power2
+
+    def test_lower_soc_needs_higher_power(self):
+        """Lower starting SoC → more energy → higher power."""
+        power_low = calculate_overnight_charge_power(
+            current_soc_pct=0.30,
+            target_soc_pct=0.80,
+            battery_capacity_kwh=11.52,
+            **self._WINDOW,
+        )
+        power_high = calculate_overnight_charge_power(
+            current_soc_pct=0.60,
+            target_soc_pct=0.80,
+            battery_capacity_kwh=11.52,
+            **self._WINDOW,
+        )
+        assert power_low > power_high
+
+    def test_midnight_crossing_window(self):
+        """23:30 to 05:30 crosses midnight = 6 hours total."""
+        power = calculate_overnight_charge_power(
+            current_soc_pct=0.10,
+            target_soc_pct=0.80,
+            battery_capacity_kwh=11.52,
+            cheap_rate_start_hour=23.5,
+            cheap_rate_end_hour=5.5,
+        )
+        # 8.064 kWh / 5.5h (6h - 30min buffer)
+        assert 1.3 < power < 1.7
+
+    def test_non_crossing_window(self):
+        """Window within same day (e.g. 00:00 to 06:00)."""
+        power = calculate_overnight_charge_power(
+            current_soc_pct=0.10,
+            target_soc_pct=0.80,
+            battery_capacity_kwh=11.52,
+            cheap_rate_start_hour=0.0,
+            cheap_rate_end_hour=6.0,
+        )
+        # 8.064 kWh / 5.5h (6h - 30min buffer)
+        assert 1.3 < power < 1.7
+
+    @pytest.mark.parametrize("buffer", [0, 15, 30, 60])
+    def test_buffer_affects_power(self, buffer):
+        """Larger buffer → shorter effective window → higher power."""
+        power = calculate_overnight_charge_power(
+            current_soc_pct=0.10,
+            target_soc_pct=0.80,
+            battery_capacity_kwh=11.52,
+            **self._WINDOW,
+            buffer_minutes=buffer,
+        )
+        assert power > 0
+
+    def test_custom_min_max(self):
+        power = calculate_overnight_charge_power(
+            current_soc_pct=0.79,
+            target_soc_pct=0.80,
+            battery_capacity_kwh=11.52,
+            **self._WINDOW,
+            min_power_kw=1.0,
+            max_power_kw=3.0,
+        )
+        assert power == 1.0  # Tiny energy → clamped to custom min

@@ -293,15 +293,16 @@ class TestOvernightMaxSocOverride:
         assert result.state == RecommendationState.CHARGE_FOR_LATER_EXPORT
         assert result.target_max_soc == 50
 
-    def test_overnight_max_soc_without_dynamic_uses_normal(self, engine):
-        """During overnight window without dynamic target, uses normal max_soc."""
+    def test_overnight_max_soc_without_dynamic_uses_static(self, engine):
+        """During overnight window without dynamic target, uses static 95% and trickle charge."""
         snap = make_recommendation_snapshot(
             battery_soc_pct=30.0,
             timestamp=datetime(2026, 3, 11, 0, 0, tzinfo=timezone.utc),
         )
         result = engine.evaluate(snap)
         assert result.state == RecommendationState.CHARGE_FOR_LATER_EXPORT
-        assert result.target_max_soc == 90  # Default when no upcoming rates
+        assert result.target_max_soc == 95  # Static fallback
+        assert result.target_charge_kw is not None  # Trickle charge calculated
 
 
 class TestChargePlanMaxSocOverride:

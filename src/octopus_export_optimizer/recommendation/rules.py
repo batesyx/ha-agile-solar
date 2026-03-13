@@ -118,12 +118,19 @@ class OvernightChargeRule(Rule):
         self.target_soc_pct = target_soc_pct
 
     def _is_cheap_window(self, now: datetime) -> bool:
-        """Check if current time is within cheap import hours."""
+        """Check if current time is within cheap import hours.
+
+        Insets the window by 1 minute on each side (e.g. 23:30-05:30 becomes
+        23:31-05:29) to avoid smart meter billing overlap at the boundaries.
+        """
+        inset = 1.0 / 60.0  # 1 minute in decimal hours
+        start = self.cheap_rate_start_hour + inset
+        end = self.cheap_rate_end_hour - inset
         hour = now.hour + now.minute / 60.0
         if self.cheap_rate_start_hour > self.cheap_rate_end_hour:
-            # Overnight window (e.g. 23:30 to 05:30)
-            return hour >= self.cheap_rate_start_hour or hour < self.cheap_rate_end_hour
-        return self.cheap_rate_start_hour <= hour < self.cheap_rate_end_hour
+            # Overnight window (e.g. 23:31 to 05:29)
+            return hour >= start or hour < end
+        return start <= hour < end
 
     def evaluate(self, snapshot: RecommendationInputSnapshot) -> Recommendation | None:
         if not self._is_cheap_window(snapshot.timestamp):

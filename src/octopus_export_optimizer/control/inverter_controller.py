@@ -43,6 +43,7 @@ class InverterController:
         self._extra_buffer_kwh: float = 0.0
         self._last_commanded_mode: WorkMode | None = None
         self._last_commanded_max_soc: int | None = None
+        self._last_commanded_charge_kw: float | None = None
         self._last_commanded_discharge_kw: float | None = None
         self._last_command_time: datetime | None = None
 
@@ -119,6 +120,7 @@ class InverterController:
         if target_discharge_kw is not None:
             target_mode = WorkMode.FORCE_DISCHARGE
 
+        target_charge_kw = recommendation.target_charge_kw
         target_max_soc = recommendation.target_max_soc
         if target_max_soc is not None:
             target_max_soc = max(10, min(100, target_max_soc))
@@ -129,14 +131,18 @@ class InverterController:
             target_max_soc is not None
             and target_max_soc != self._last_commanded_max_soc
         )
+        charge_kw_changed = (
+            target_charge_kw is not None
+            and target_charge_kw != self._last_commanded_charge_kw
+        )
         discharge_kw_changed = (
             target_discharge_kw is not None
             and target_discharge_kw != self._last_commanded_discharge_kw
         )
-        if not mode_changed and not soc_changed and not discharge_kw_changed:
+        if not mode_changed and not soc_changed and not charge_kw_changed and not discharge_kw_changed:
             logger.debug(
-                "No change needed: mode=%s, max_soc=%s, discharge_kw=%s",
-                target_mode.value, target_max_soc, target_discharge_kw,
+                "No change needed: mode=%s, max_soc=%s, charge_kw=%s, discharge_kw=%s",
+                target_mode.value, target_max_soc, target_charge_kw, target_discharge_kw,
             )
             return None  # Idempotent — no-op
 
@@ -160,6 +166,9 @@ class InverterController:
         try:
             if soc_changed and target_max_soc is not None:
                 self._send_max_soc(target_max_soc)
+
+            if charge_kw_changed and target_charge_kw is not None:
+                self._send_force_charge_power(target_charge_kw)
 
             if mode_changed:
                 self._send_work_mode(target_mode)
@@ -189,13 +198,15 @@ class InverterController:
         if success:
             self._last_commanded_mode = target_mode
             self._last_commanded_max_soc = target_max_soc
+            self._last_commanded_charge_kw = target_charge_kw
             self._last_commanded_discharge_kw = target_discharge_kw
             self._last_command_time = now
             logger.info(
-                "Inverter command: %s → %s (max_soc=%s, discharge_kw=%s, reason=%s)",
+                "Inverter command: %s → %s (max_soc=%s, charge_kw=%s, discharge_kw=%s, reason=%s)",
                 previous_mode,
                 target_mode.value,
                 target_max_soc,
+                target_charge_kw,
                 target_discharge_kw,
                 recommendation.reason_code,
             )
@@ -213,6 +224,18 @@ class InverterController:
         )
         resp.raise_for_status()
         logger.debug("Set work mode to %s", mode.value)
+
+    def _send_force_charge_power(self, power_kw: float) -> None:
+        """Set force charge power via HA number entity."""
+        resp = self._client.post(
+            "/api/services/number/set_value",
+            json={
+                "entity_id": self.ha_settings.entity_ids.force_charge_power,
+                "value": round(power_kw, 3),
+            },
+        )
+        resp.raise_for_status()
+        logger.debug("Set force charge power to %.3f kW", power_kw)
 
     def _send_force_discharge_power(self, power_kw: float) -> None:
         """Set force discharge power via HA number entity."""

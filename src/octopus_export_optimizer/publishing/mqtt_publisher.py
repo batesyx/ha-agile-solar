@@ -424,8 +424,12 @@ class MqttPublisher:
         target: object | None,
         solar_forecast_kwh: float | None = None,
         forecast_minimum_kwh: float | None = None,
+        charge_power_kw: float | None = None,
     ) -> None:
         """Publish solar-aware overnight charge target sensors."""
+        charge_suffix = ""
+        if charge_power_kw is not None:
+            charge_suffix = f" Trickle charging at {charge_power_kw:.1f} kW."
         if target is not None:
             target_pct = target.target_soc_pct * 100
             seasonal_pct = target.seasonal_max_pct * 100
@@ -454,13 +458,13 @@ class MqttPublisher:
                     f"{target.solar_opportunity_slots} low-rate solar slots tomorrow, "
                     f"leaving {target.headroom_kwh:.1f} kWh headroom for free solar charging. "
                     f"Est. saving {target.estimated_savings_pence:.1f}p on overnight import."
-                    f"{forecast_suffix}"
+                    f"{forecast_suffix}{charge_suffix}"
                 )
             else:
                 detail = (
                     f"Full charge to {target_pct:.0f}% — "
                     f"tomorrow's export rates are strong, limited solar charging opportunity."
-                    f"{forecast_suffix}"
+                    f"{forecast_suffix}{charge_suffix}"
                 )
             self._publish(
                 f"{self.prefix}/control/overnight_detail",
@@ -482,7 +486,7 @@ class MqttPublisher:
             self._publish(
                 f"{self.prefix}/control/overnight_detail",
                 f"Forecast {solar_forecast_kwh:.1f} kWh < {forecast_minimum_kwh:.1f} kWh minimum — "
-                f"charging to seasonal max, insufficient solar expected.",
+                f"charging to seasonal max, insufficient solar expected.{charge_suffix}",
                 retain=True,
             )
         else:

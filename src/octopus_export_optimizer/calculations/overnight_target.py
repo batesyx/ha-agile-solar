@@ -100,3 +100,53 @@ def calculate_overnight_charge_target(
         estimated_savings_pence=round(estimated_savings, 1),
         seasonal_max_pct=seasonal_max_soc_pct,
     )
+
+
+def calculate_overnight_charge_power(
+    current_soc_pct: float,
+    target_soc_pct: float,
+    battery_capacity_kwh: float,
+    cheap_rate_start_hour: float,
+    cheap_rate_end_hour: float,
+    buffer_minutes: int = 30,
+    min_power_kw: float = 0.5,
+    max_power_kw: float = 5.0,
+) -> float:
+    """Calculate a static charge power to spread charging evenly across the full window.
+
+    Uses the full cheap-rate window length (start to end minus buffer) so the
+    result is constant regardless of when during the window it's calculated.
+    The inverter receives one stable power target for the entire night.
+
+    Args:
+        current_soc_pct: Current battery SoC as fraction (0.0-1.0).
+        target_soc_pct: Target SoC as fraction (0.0-1.0).
+        battery_capacity_kwh: Total usable battery capacity.
+        cheap_rate_start_hour: Start of cheap rate window as decimal hour (e.g. 23.5 = 23:30).
+        cheap_rate_end_hour: End of cheap rate window as decimal hour (e.g. 5.5 = 05:30).
+        buffer_minutes: Finish this many minutes before the window ends.
+        min_power_kw: Minimum charge power floor.
+        max_power_kw: Maximum charge power cap.
+
+    Returns:
+        Charge power in kW, clamped to [min_power_kw, max_power_kw].
+    """
+    if current_soc_pct >= target_soc_pct:
+        return min_power_kw
+
+    # Calculate total window length in hours
+    if cheap_rate_end_hour > cheap_rate_start_hour:
+        window_hours = cheap_rate_end_hour - cheap_rate_start_hour
+    else:
+        # Overnight crossing midnight (e.g. 23.5 to 5.5 = 6 hours)
+        window_hours = (24.0 - cheap_rate_start_hour) + cheap_rate_end_hour
+
+    window_hours -= buffer_minutes / 60.0
+
+    if window_hours < 0.25:
+        return max_power_kw
+
+    energy_needed_kwh = (target_soc_pct - current_soc_pct) * battery_capacity_kwh
+    charge_kw = energy_needed_kwh / window_hours
+
+    return max(min_power_kw, min(max_power_kw, round(charge_kw, 2)))

@@ -488,14 +488,16 @@ class Application:
             snapshot, upcoming_12h, export_plan=export_plan, charge_plan=charge_plan
         )
         self.recommendation_repo.save(recommendation, snapshot)
+        self._last_target_charge_kw = recommendation.target_charge_kw
         logger.info(
             "Snapshot: soc=%.0f%%, export_rate=%s, pv=%.1fkW, exportable=%.2fkWh | "
-            "target_max_soc=%s, target_discharge_kw=%s",
+            "target_max_soc=%s, charge_kw=%s, discharge_kw=%s",
             snapshot.battery_soc_pct or 0,
             snapshot.current_export_rate_pence,
             snapshot.pv_power_kw or 0,
             snapshot.exportable_battery_kwh or 0,
             recommendation.target_max_soc,
+            recommendation.target_charge_kw,
             recommendation.target_discharge_kw,
         )
 
@@ -620,6 +622,7 @@ class Application:
             getattr(self, "_current_overnight_target", None),
             solar_forecast_kwh=getattr(self, "_solar_forecast_kwh", None),
             forecast_minimum_kwh=self.settings.inverter_control.solar_forecast_minimum_kwh,
+            charge_power_kw=getattr(self, "_last_target_charge_kw", None),
         )
         self.mqtt_publisher.publish_charge_plan(
             getattr(self, "_current_charge_plan", None)

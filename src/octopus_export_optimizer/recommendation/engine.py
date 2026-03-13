@@ -137,10 +137,29 @@ class RecommendationEngine:
         if (
             result.state == RecommendationState.CHARGE_FOR_LATER_EXPORT
             and result.reason_code == ReasonCode.OVERNIGHT_CHARGE_STRATEGY
-            and snapshot.overnight_charge_target_pct is not None
         ):
-            target_pct = int(snapshot.overnight_charge_target_pct * 100)
+            # Use dynamic target if available, otherwise static 95%
+            effective_target = (
+                snapshot.overnight_charge_target_pct
+                if snapshot.overnight_charge_target_pct is not None
+                else 0.95
+            )
+            target_pct = int(effective_target * 100)
             result.target_max_soc = target_pct
+
+            # Calculate trickle charge power to reach target slowly
+            if snapshot.battery_soc_pct is not None:
+                from octopus_export_optimizer.calculations.overnight_target import (
+                    calculate_overnight_charge_power,
+                )
+                result.target_charge_kw = calculate_overnight_charge_power(
+                    current_soc_pct=snapshot.battery_soc_pct / 100.0,
+                    target_soc_pct=effective_target,
+                    battery_capacity_kwh=self.battery.capacity_kwh,
+                    cheap_rate_start_hour=self.inverter_control.cheap_rate_start_hour,
+                    cheap_rate_end_hour=self.inverter_control.cheap_rate_end_hour,
+                )
+
             # If SoC is already at or above target, switch to Feed-in First
             # to avoid Force Charge drawing from grid unnecessarily.
             if (

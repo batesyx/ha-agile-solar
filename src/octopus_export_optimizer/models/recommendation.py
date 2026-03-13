@@ -52,6 +52,7 @@ class Recommendation(BaseModel):
     valid_until: datetime | None = None
     input_snapshot_id: str
     target_max_soc: int | None = None
+    target_charge_kw: float | None = None
     target_discharge_kw: float | None = None
     export_plan_slots: int | None = None
     target_work_mode_override: str | None = None

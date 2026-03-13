@@ -30,11 +30,19 @@ class TestOvernightChargeRule:
         )
         assert rule.evaluate(snap) is None
 
-    def test_at_window_start_2330(self, rule):
-        """23:30 — exactly at window start, should fire."""
+    def test_at_tariff_boundary_2330_not_fired(self, rule):
+        """23:30 — tariff boundary, 1-min inset means NOT fired yet."""
         snap = make_recommendation_snapshot(
             battery_soc_pct=50.0,
             timestamp=datetime(2026, 3, 10, 23, 30, tzinfo=timezone.utc),
+        )
+        assert rule.evaluate(snap) is None
+
+    def test_at_window_start_2331(self, rule):
+        """23:31 — 1 minute after tariff boundary, should fire."""
+        snap = make_recommendation_snapshot(
+            battery_soc_pct=50.0,
+            timestamp=datetime(2026, 3, 10, 23, 31, tzinfo=timezone.utc),
         )
         result = rule.evaluate(snap)
         assert result is not None
@@ -51,17 +59,25 @@ class TestOvernightChargeRule:
         assert result is not None
         assert result.state == RecommendationState.CHARGE_FOR_LATER_EXPORT
 
-    def test_near_window_end_0529(self, rule):
-        """05:29 — just before window end, should fire."""
+    def test_near_window_end_0528(self, rule):
+        """05:28 — inside inset window, should fire."""
         snap = make_recommendation_snapshot(
             battery_soc_pct=50.0,
-            timestamp=datetime(2026, 3, 11, 5, 29, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 3, 11, 5, 28, tzinfo=timezone.utc),
         )
         result = rule.evaluate(snap)
         assert result is not None
 
-    def test_at_window_end_0530(self, rule):
-        """05:30 — at window end, should NOT fire (uses < comparison)."""
+    def test_at_window_end_0529_not_fired(self, rule):
+        """05:29 — 1-min inset before tariff boundary, should NOT fire."""
+        snap = make_recommendation_snapshot(
+            battery_soc_pct=50.0,
+            timestamp=datetime(2026, 3, 11, 5, 29, tzinfo=timezone.utc),
+        )
+        assert rule.evaluate(snap) is None
+
+    def test_at_tariff_boundary_0530_not_fired(self, rule):
+        """05:30 — at tariff boundary, should NOT fire."""
         snap = make_recommendation_snapshot(
             battery_soc_pct=50.0,
             timestamp=datetime(2026, 3, 11, 5, 30, tzinfo=timezone.utc),
