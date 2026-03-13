@@ -65,7 +65,7 @@ def build_charge_plan(
     battery_headroom_kwh: float,
     round_trip_efficiency: float,
     export_threshold_pence: float,
-    solar_charge_kwh_per_slot: float = 2.0,
+    solar_charge_kwh_per_slot: float = 0.75,
 ) -> ChargePlan | None:
     """Identify low-rate solar windows where battery should charge to 100%.
 
