@@ -153,6 +153,7 @@ class RecommendationEngine:
                     calculate_overnight_charge_power,
                 )
                 result.target_charge_kw = calculate_overnight_charge_power(
+                    now=snapshot.timestamp,
                     current_soc_pct=snapshot.battery_soc_pct / 100.0,
                     target_soc_pct=effective_target,
                     battery_capacity_kwh=self.battery.capacity_kwh,

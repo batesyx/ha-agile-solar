@@ -8,6 +8,7 @@ headroom for free solar charging during low-rate periods.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 from octopus_export_optimizer.models.tariff import TariffSlot
 
@@ -103,6 +104,7 @@ def calculate_overnight_charge_target(
 
 
 def calculate_overnight_charge_power(
+    now: datetime,
     current_soc_pct: float,
     target_soc_pct: float,
     battery_capacity_kwh: float,
@@ -112,13 +114,14 @@ def calculate_overnight_charge_power(
     min_power_kw: float = 0.5,
     max_power_kw: float = 5.0,
 ) -> float:
-    """Calculate a static charge power to spread charging evenly across the full window.
+    """Calculate charge power based on remaining time in the cheap-rate window.
 
-    Uses the full cheap-rate window length (start to end minus buffer) so the
-    result is constant regardless of when during the window it's calculated.
-    The inverter receives one stable power target for the entire night.
+    Divides energy still needed by hours remaining (not the full window),
+    so power stays stable as the battery charges and increases if charging
+    falls behind schedule.
 
     Args:
+        now: Current UTC time.
         current_soc_pct: Current battery SoC as fraction (0.0-1.0).
         target_soc_pct: Target SoC as fraction (0.0-1.0).
         battery_capacity_kwh: Total usable battery capacity.
@@ -134,19 +137,22 @@ def calculate_overnight_charge_power(
     if current_soc_pct >= target_soc_pct:
         return min_power_kw
 
-    # Calculate total window length in hours
-    if cheap_rate_end_hour > cheap_rate_start_hour:
-        window_hours = cheap_rate_end_hour - cheap_rate_start_hour
-    else:
-        # Overnight crossing midnight (e.g. 23.5 to 5.5 = 6 hours)
-        window_hours = (24.0 - cheap_rate_start_hour) + cheap_rate_end_hour
+    # Build the effective end datetime (cheap_rate_end minus buffer)
+    end_hour = int(cheap_rate_end_hour)
+    end_minute = int((cheap_rate_end_hour % 1) * 60)
+    effective_end = now.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
+    effective_end -= timedelta(minutes=buffer_minutes)
 
-    window_hours -= buffer_minutes / 60.0
+    # If end time appears to be in the past, it's tomorrow
+    if effective_end <= now:
+        effective_end += timedelta(days=1)
 
-    if window_hours < 0.25:
+    remaining_hours = (effective_end - now).total_seconds() / 3600.0
+
+    if remaining_hours < 0.25:
         return max_power_kw
 
     energy_needed_kwh = (target_soc_pct - current_soc_pct) * battery_capacity_kwh
-    charge_kw = energy_needed_kwh / window_hours
+    charge_kw = energy_needed_kwh / remaining_hours
 
     return max(min_power_kw, min(max_power_kw, round(charge_kw, 2)))

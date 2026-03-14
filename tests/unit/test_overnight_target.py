@@ -203,14 +203,17 @@ class TestHeadroomCapping:
 
 
 class TestCalculateOvernightChargePower:
-    """Tests for static trickle charge power calculation."""
+    """Tests for remaining-time trickle charge power calculation."""
 
     # Default window: 23:30 to 05:30 = 6 hours, minus 30 min buffer = 5.5 hours
     _WINDOW = dict(cheap_rate_start_hour=23.5, cheap_rate_end_hour=5.5)
+    # now at start of window → 5.5h remaining (same as old full-window calc)
+    _NOW = datetime(2026, 3, 14, 23, 30, tzinfo=timezone.utc)
 
     def test_basic_calculation(self):
-        """10% → 80% over 5.5 hours = ~1.47 kW."""
+        """10% → 80% over 5.5 hours remaining = ~1.47 kW."""
         power = calculate_overnight_charge_power(
+            now=self._NOW,
             current_soc_pct=0.10,
             target_soc_pct=0.80,
             battery_capacity_kwh=11.52,
@@ -220,8 +223,9 @@ class TestCalculateOvernightChargePower:
         assert 1.3 < power < 1.7
 
     def test_full_charge_10_to_95(self):
-        """10% → 95% over 5.5 hours = ~1.78 kW."""
+        """10% → 95% over 5.5 hours remaining = ~1.78 kW."""
         power = calculate_overnight_charge_power(
+            now=self._NOW,
             current_soc_pct=0.10,
             target_soc_pct=0.95,
             battery_capacity_kwh=11.52,
@@ -232,6 +236,7 @@ class TestCalculateOvernightChargePower:
 
     def test_already_at_target_returns_min(self):
         power = calculate_overnight_charge_power(
+            now=self._NOW,
             current_soc_pct=0.80,
             target_soc_pct=0.80,
             battery_capacity_kwh=11.52,
@@ -241,6 +246,7 @@ class TestCalculateOvernightChargePower:
 
     def test_above_target_returns_min(self):
         power = calculate_overnight_charge_power(
+            now=self._NOW,
             current_soc_pct=0.90,
             target_soc_pct=0.80,
             battery_capacity_kwh=11.52,
@@ -251,6 +257,7 @@ class TestCalculateOvernightChargePower:
     def test_clamped_to_min(self):
         """Small energy needed → floor at min_power_kw."""
         power = calculate_overnight_charge_power(
+            now=self._NOW,
             current_soc_pct=0.78,
             target_soc_pct=0.80,
             battery_capacity_kwh=11.52,
@@ -260,7 +267,10 @@ class TestCalculateOvernightChargePower:
 
     def test_clamped_to_max(self):
         """Huge energy in tiny window → cap at max_power_kw."""
+        # Window 05:00-05:30, buffer 25 min → effective end 05:05
+        # now at 05:00 → only 5 min remaining
         power = calculate_overnight_charge_power(
+            now=datetime(2026, 3, 14, 5, 0, tzinfo=timezone.utc),
             current_soc_pct=0.10,
             target_soc_pct=0.95,
             battery_capacity_kwh=11.52,
@@ -270,28 +280,33 @@ class TestCalculateOvernightChargePower:
         )
         assert power == 5.0
 
-    def test_static_regardless_of_time_in_window(self):
-        """Same SoC and target always produces the same power."""
+    def test_power_increases_as_time_runs_out(self):
+        """With same SoC, less remaining time → higher power."""
         kwargs = dict(
             current_soc_pct=0.30,
             target_soc_pct=0.80,
             battery_capacity_kwh=11.52,
             **self._WINDOW,
         )
-        power = calculate_overnight_charge_power(**kwargs)
-        # Call again — same result (no time dependency)
-        power2 = calculate_overnight_charge_power(**kwargs)
-        assert power == power2
+        power_early = calculate_overnight_charge_power(
+            now=datetime(2026, 3, 14, 23, 30, tzinfo=timezone.utc), **kwargs,
+        )
+        power_late = calculate_overnight_charge_power(
+            now=datetime(2026, 3, 15, 3, 0, tzinfo=timezone.utc), **kwargs,
+        )
+        assert power_late > power_early
 
     def test_lower_soc_needs_higher_power(self):
         """Lower starting SoC → more energy → higher power."""
         power_low = calculate_overnight_charge_power(
+            now=self._NOW,
             current_soc_pct=0.30,
             target_soc_pct=0.80,
             battery_capacity_kwh=11.52,
             **self._WINDOW,
         )
         power_high = calculate_overnight_charge_power(
+            now=self._NOW,
             current_soc_pct=0.60,
             target_soc_pct=0.80,
             battery_capacity_kwh=11.52,
@@ -300,33 +315,36 @@ class TestCalculateOvernightChargePower:
         assert power_low > power_high
 
     def test_midnight_crossing_window(self):
-        """23:30 to 05:30 crosses midnight = 6 hours total."""
+        """23:30 to 05:30 crosses midnight = 5.5h remaining at start."""
         power = calculate_overnight_charge_power(
+            now=self._NOW,
             current_soc_pct=0.10,
             target_soc_pct=0.80,
             battery_capacity_kwh=11.52,
             cheap_rate_start_hour=23.5,
             cheap_rate_end_hour=5.5,
         )
-        # 8.064 kWh / 5.5h (6h - 30min buffer)
+        # 8.064 kWh / 5.5h (remaining from 23:30 to 05:00)
         assert 1.3 < power < 1.7
 
     def test_non_crossing_window(self):
         """Window within same day (e.g. 00:00 to 06:00)."""
         power = calculate_overnight_charge_power(
+            now=datetime(2026, 3, 14, 0, 0, tzinfo=timezone.utc),
             current_soc_pct=0.10,
             target_soc_pct=0.80,
             battery_capacity_kwh=11.52,
             cheap_rate_start_hour=0.0,
             cheap_rate_end_hour=6.0,
         )
-        # 8.064 kWh / 5.5h (6h - 30min buffer)
+        # 8.064 kWh / 5.5h (remaining from 00:00 to 05:30)
         assert 1.3 < power < 1.7
 
     @pytest.mark.parametrize("buffer", [0, 15, 30, 60])
     def test_buffer_affects_power(self, buffer):
-        """Larger buffer → shorter effective window → higher power."""
+        """Larger buffer → shorter remaining window → higher power."""
         power = calculate_overnight_charge_power(
+            now=self._NOW,
             current_soc_pct=0.10,
             target_soc_pct=0.80,
             battery_capacity_kwh=11.52,
@@ -337,6 +355,7 @@ class TestCalculateOvernightChargePower:
 
     def test_custom_min_max(self):
         power = calculate_overnight_charge_power(
+            now=self._NOW,
             current_soc_pct=0.79,
             target_soc_pct=0.80,
             battery_capacity_kwh=11.52,
