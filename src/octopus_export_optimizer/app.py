@@ -269,12 +269,7 @@ class Application:
         # Export revenue
         meters = self.meter_repo.get_export_intervals(start, end)
         tariffs = self.tariff_repo.get_export_rates(start, end)
-        solar_excess_map = self.revenue_repo.get_solar_excess_batch(
-            [m.interval_start for m in meters]
-        )
-        intervals = self.revenue_calculator.calculate_batch(
-            meters, tariffs, solar_excess_map=solar_excess_map or None,
-        )
+        intervals = self.revenue_calculator.calculate_batch(meters, tariffs)
         if intervals:
             self.revenue_repo.upsert_intervals(intervals)
             logger.info("Calculated revenue for %d export intervals", len(intervals))
@@ -644,15 +639,6 @@ class Application:
                 day_snapshots, day_tariffs, self.settings.thresholds, now,
                 import_tariff_slots=day_import_tariffs if day_import_tariffs else None,
             )
-            # Persist solar excess data for settled calculator
-            if estimate.half_hour_solar_excess:
-                self.revenue_repo.upsert_solar_excess_batch(
-                    {
-                        datetime.fromisoformat(k): v
-                        for k, v in estimate.half_hour_solar_excess.items()
-                    }
-                )
-
             if estimate.export_kwh > 0:
                 from octopus_export_optimizer.models.revenue import RevenueSummary
 
@@ -723,11 +709,6 @@ class Application:
                     combined_import_kwh = m.total_import_kwh + t.total_import_kwh
                     combined_opp = m.charging_opportunity_cost_pence + t.charging_opportunity_cost_pence
                     combined_net = combined_agile - combined_import
-                    flat_kwh = None
-                    if t.flat_export_kwh is not None:
-                        flat_kwh = (m.flat_export_kwh or 0.0) + t.flat_export_kwh
-                    elif m.flat_export_kwh is not None:
-                        flat_kwh = m.flat_export_kwh
                     month_summary = month_summary.model_copy(update={
                         "total_export_kwh": round(combined_kwh, 4),
                         "agile_revenue_pence": round(combined_agile, 4),
@@ -741,7 +722,7 @@ class Application:
                         "net_revenue_pence": round(combined_net, 4),
                         "charging_opportunity_cost_pence": round(combined_opp, 4),
                         "true_profit_pence": round(combined_net - combined_opp, 4),
-                        "flat_export_kwh": flat_kwh,
+                        "flat_export_kwh": round(combined_kwh, 4),
                         "avg_flat_rate_pence": t.avg_flat_rate_pence or m.avg_flat_rate_pence,
                         "calculated_at": now,
                     })

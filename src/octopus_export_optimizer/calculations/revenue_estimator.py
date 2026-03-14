@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from octopus_export_optimizer.config.settings import ThresholdSettings
 from octopus_export_optimizer.models.ha_state import HaStateSnapshot
@@ -37,9 +37,8 @@ class RevenueEstimate:
     charging_opportunity_cost_pence: float = 0.0
     true_profit_pence: float = 0.0  # net_revenue - opportunity_cost
 
-    # Fair flat baseline (solar excess counterfactual)
+    # Flat baseline (same kWh as actual export, at flat rate)
     flat_export_kwh: float = 0.0
-    half_hour_solar_excess: dict[str, float] = field(default_factory=dict)
 
 
 def estimate_revenue(
@@ -58,9 +57,8 @@ def estimate_revenue(
     Also estimates import cost (grid consumption) and charging
     opportunity cost (solar used to charge battery instead of export).
 
-    The flat baseline uses solar excess (max(0, pv - load)) rather than
-    actual feed-in, modelling what would be exported on a flat tariff
-    where no battery management (charge plan, Force Discharge) occurs.
+    The flat baseline uses the same actual exported kWh at the flat rate,
+    so uplift shows the pure rate advantage of Agile timing.
 
     Args:
         snapshots: Today's HA state snapshots, ordered by timestamp.
@@ -79,8 +77,6 @@ def estimate_revenue(
     total_import_kwh = 0.0
     total_import_cost = 0.0
     total_opportunity_cost = 0.0
-    total_flat_kwh = 0.0
-    half_hour_solar_excess: dict[str, float] = {}
 
     for i in range(1, len(snapshots)):
         prev = snapshots[i - 1]
@@ -106,27 +102,11 @@ def estimate_revenue(
             total_kwh += export_kwh
             total_agile_pence += export_kwh * export_rate
 
-        # --- Extract PV and load for flat baseline + import cost ---
+        # --- Extract PV and load for import cost + opportunity cost ---
         pv_prev = max(0.0, prev.pv_power_kw or 0.0)
         pv_curr = max(0.0, curr.pv_power_kw or 0.0)
         load_prev = max(0.0, prev.load_power_kw or 0.0)
         load_curr = max(0.0, curr.load_power_kw or 0.0)
-
-        # --- Fair flat baseline: solar excess (what flat rate would export) ---
-        solar_excess_prev = max(0.0, pv_prev - load_prev)
-        solar_excess_curr = max(0.0, pv_curr - load_curr)
-        avg_solar_excess = (solar_excess_prev + solar_excess_curr) / 2.0
-        flat_kwh = avg_solar_excess * dt_hours
-        total_flat_kwh += flat_kwh
-
-        # Bucket into half-hour intervals for persistence
-        hh_minute = (prev.timestamp.minute // 30) * 30
-        hh_start = prev.timestamp.replace(
-            minute=hh_minute, second=0, microsecond=0
-        ).isoformat()
-        half_hour_solar_excess[hh_start] = (
-            half_hour_solar_excess.get(hh_start, 0.0) + flat_kwh
-        )
 
         # --- Import cost ---
         if import_tariff_slots:
@@ -159,7 +139,7 @@ def estimate_revenue(
             if solar_chg_kwh > 0:
                 total_opportunity_cost += solar_chg_kwh * export_rate
 
-    total_flat_pence = total_flat_kwh * flat_rate
+    total_flat_pence = total_kwh * flat_rate
     net_rev = total_agile_pence - total_import_cost
     true_profit = net_rev - total_opportunity_cost
 
@@ -174,8 +154,7 @@ def estimate_revenue(
         net_revenue_pence=round(net_rev, 4),
         charging_opportunity_cost_pence=round(total_opportunity_cost, 4),
         true_profit_pence=round(true_profit, 4),
-        flat_export_kwh=round(total_flat_kwh, 4),
-        half_hour_solar_excess=half_hour_solar_excess,
+        flat_export_kwh=round(total_kwh, 4),
     )
 
 
