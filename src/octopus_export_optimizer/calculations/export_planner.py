@@ -86,7 +86,7 @@ def build_export_plan(
     # Build planned slots, sorted by time for easy lookup
     planned = []
     for slot, kwh in sorted(allocations, key=lambda x: x[0].interval_start):
-        kw = min(kwh / 0.5, max_discharge_kw)
+        kw = max_discharge_kw
         planned.append(PlannedSlot(
             interval_start=slot.interval_start,
             interval_end=slot.interval_end,
