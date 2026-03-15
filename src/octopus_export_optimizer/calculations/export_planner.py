@@ -77,8 +77,8 @@ def build_export_plan(
         allocations.append((slot, alloc_kwh))
         remaining -= alloc_kwh
 
-    # Drop partial slots with < 0.5 kWh — not worth a whole slot
-    allocations = [(s, kwh) for s, kwh in allocations if kwh >= 0.5]
+    # Drop partial slots with < 0.1 kWh — not worth inverter switching overhead
+    allocations = [(s, kwh) for s, kwh in allocations if kwh >= 0.1]
 
     if not allocations:
         return None

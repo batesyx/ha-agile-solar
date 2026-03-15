@@ -144,6 +144,30 @@ class TestBuildExportPlan:
         starts = [s.interval_start for s in plan.planned_slots]
         assert starts == sorted(starts)
 
+    def test_small_partial_slot_kept(self):
+        """Partial slot with >= 0.1 kWh should be kept, not dropped."""
+        slots = [_slot(1, 30), _slot(2, 25)]
+        # 5.3 kWh × sqrt(0.90) ≈ 5.03 → 2.5 + 2.5 + 0.03 remainder
+        # But let's use exact values: 2 full slots + small partial
+        # exportable=5.5 → effective=5.5*0.949=5.22 → 2.5+2.5+0.22 → 0.22 kept
+        plan = _plan(exportable=5.5, slots=slots, max_kw=5.0)
+        assert plan is not None
+        assert len(plan.planned_slots) == 2
+        # Both slots should be present (0.22 kWh remainder goes to 2nd slot)
+        assert plan.total_planned_kwh > 4.9
+
+    def test_tiny_partial_slot_dropped(self):
+        """Partial slot with < 0.1 kWh should be dropped."""
+        slots = [_slot(1, 30), _slot(2, 25), _slot(3, 20)]
+        # Need exportable that leaves < 0.1 kWh for last slot
+        # effective = exportable * sqrt(0.90), max_per_slot = 2.5
+        # Want exactly 2 full slots + tiny remainder: 5.0 / 0.949 ≈ 5.27
+        # effective = 5.27 * 0.949 ≈ 5.0 → 2.5 + 2.5 + 0.0 → exactly 2 slots
+        # Use 5.3 → effective = 5.3 * 0.949 ≈ 5.03 → 2.5 + 2.5 + 0.03 → dropped
+        plan = _plan(exportable=5.3, slots=slots, max_kw=5.0)
+        assert plan is not None
+        assert len(plan.planned_slots) == 2  # 3rd slot dropped (0.03 < 0.1)
+
     def test_plan_fields_populated(self):
         plan = _plan(exportable=5.0, max_kw=5.0)
         assert plan is not None
