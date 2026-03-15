@@ -792,7 +792,11 @@ class Application:
                     if self.inverter_controller.last_commanded_mode
                     else None
                 ),
-                evening_reserve_soc=reserve,
+                evening_reserve_soc=(
+                    max(self.settings.thresholds.reserve_soc_floor, reserve)
+                    if reserve is not None
+                    else None
+                ),
                 last_command_info=last_cmd_info,
             )
 
