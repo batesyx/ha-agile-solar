@@ -44,6 +44,7 @@ class ExportHandler(BaseHTTPRequestHandler):
             "/api/export/commands": self._export_commands,
             "/api/export/database": self._export_database,
             "/api/revenue/daily": self._revenue_daily,
+            "/api/export/daily-profit": self._export_daily_profit,
             "/api/status": self._status,
         }
 
@@ -216,6 +217,34 @@ class ExportHandler(BaseHTTPRequestHandler):
             for r in reversed(rows)  # Oldest first for charting
         ]
         self._send_json(200, {"data": data, "count": len(data)})
+
+    def _export_daily_profit(self, params: dict) -> None:
+        """Export daily profit vs flat as CSV/JSON for a date range."""
+        today = datetime.now(timezone.utc).date()
+        from_date = params.get("from", [today.replace(day=1).isoformat()])[0]
+        to_date = params.get("to", [today.isoformat()])[0]
+
+        with self.db.lock:
+            rows = self.db.conn.execute(
+                """SELECT period_key, total_export_kwh,
+                          agile_revenue_pence, flat_revenue_pence,
+                          uplift_pence, avg_realised_rate_pence,
+                          import_cost_pence, total_import_kwh,
+                          net_revenue_pence, true_profit_pence
+                   FROM revenue_summaries
+                   WHERE period_type = 'day'
+                     AND period_key >= ? AND period_key <= ?
+                   ORDER BY period_key""",
+                (from_date, to_date),
+            ).fetchall()
+
+        fmt = params.get("format", ["csv"])[0]
+        columns = [
+            "date", "export_kwh", "agile_revenue_pence", "flat_revenue_pence",
+            "uplift_pence", "avg_rate_pence", "import_cost_pence",
+            "import_kwh", "net_revenue_pence", "true_profit_pence",
+        ]
+        self._send_table(rows, columns, fmt, "daily_profit")
 
     def _export_database(self, params: dict) -> None:
         """Download the raw SQLite database file."""

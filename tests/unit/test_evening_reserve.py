@@ -91,3 +91,35 @@ class TestCalculateReserveSoc:
         # kwh_needed = 0.5 * 1.2 = 0.6
         # soc_fraction = 0.6 / 11.52 = 0.052 → clamped to 0.10
         assert result == 0.10
+
+    def test_safety_margin_increases_reserve(self):
+        """Safety margin multiplier should increase the reserve."""
+        now = datetime(2026, 3, 10, 20, 0, tzinfo=timezone.utc)
+        without_margin = calculate_reserve_soc(now, 23.5, 1.2, 0.0, 11.52)
+        with_margin = calculate_reserve_soc(
+            now, 23.5, 1.2, 0.0, 11.52, safety_margin=1.5
+        )
+        assert with_margin > without_margin
+        # 1.5x should increase by exactly 50%
+        assert abs(with_margin / without_margin - 1.5) < 0.01
+
+    def test_safety_margin_default_is_one(self):
+        """Default safety_margin=1.0 should not change the result."""
+        now = datetime(2026, 3, 10, 20, 0, tzinfo=timezone.utc)
+        default_result = calculate_reserve_soc(now, 23.5, 1.2, 0.0, 11.52)
+        explicit_result = calculate_reserve_soc(
+            now, 23.5, 1.2, 0.0, 11.52, safety_margin=1.0
+        )
+        assert default_result == explicit_result
+
+    def test_safety_margin_with_low_load_breaks_floor(self):
+        """Low load that would hit 20% floor should break out with margin."""
+        now = datetime(2026, 3, 10, 15, 0, tzinfo=timezone.utc)
+        # 0.3 kW load, ~4.75 hours → 1.425 kWh / 11.52 = 12.4% → clamped to 10%
+        without = calculate_reserve_soc(now, 23.5, 0.3, 0.0, 11.52)
+        assert without < 0.20  # Below the typical 20% floor
+        # With 2x margin → 2.85 kWh / 11.52 = 24.7%
+        with_margin = calculate_reserve_soc(
+            now, 23.5, 0.3, 0.0, 11.52, safety_margin=2.0
+        )
+        assert with_margin > 0.20

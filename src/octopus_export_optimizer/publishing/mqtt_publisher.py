@@ -202,6 +202,20 @@ class MqttPublisher:
                     value,
                     retain=True,
                 )
+        # Publish average Agile rate for today and month
+        for period, summary in [("today", today), ("month", month)]:
+            if summary and summary.total_export_kwh > 0:
+                self._publish(
+                    f"{self.prefix}/revenue/{period}/avg_rate",
+                    f"{summary.avg_realised_rate_pence:.1f}",
+                    retain=True,
+                )
+            else:
+                self._publish(
+                    f"{self.prefix}/revenue/{period}/avg_rate",
+                    "0.0",
+                    retain=True,
+                )
         # Publish whether today's figures are estimated or settled
         self._publish(
             f"{self.prefix}/revenue/today/source",
@@ -621,6 +635,7 @@ class MqttPublisher:
             ("today_export_kwh", "revenue/today/export_kwh", "Today Exported", "kWh", "mdi:lightning-bolt"),
             ("today_flat_export_kwh", "revenue/today/flat_export_kwh", "Today Flat Baseline Exported", "kWh", "mdi:lightning-bolt-outline"),
             ("today_flat_rate", "revenue/today/flat_rate_pence", "Today Flat Rate", "p/kWh", "mdi:tag-outline"),
+            ("today_avg_rate", "revenue/today/avg_rate", "Today Avg Agile Rate", "p/kWh", "mdi:chart-line"),
             ("today_import_cost", "revenue/today/import_cost_pence", "Today Import Cost", "p", "mdi:cash-remove"),
             ("today_import_kwh", "revenue/today/import_kwh", "Today Imported", "kWh", "mdi:lightning-bolt-outline"),
             ("today_net_revenue", "revenue/today/net_revenue_pence", "Today Net Revenue", "p", "mdi:cash-check"),
@@ -633,6 +648,7 @@ class MqttPublisher:
             ("month_export_kwh", "revenue/month/export_kwh", "Month Exported", "kWh", "mdi:lightning-bolt"),
             ("month_flat_export_kwh", "revenue/month/flat_export_kwh", "Month Flat Baseline Exported", "kWh", "mdi:lightning-bolt-outline"),
             ("month_flat_rate", "revenue/month/flat_rate_pence", "Month Flat Rate", "p/kWh", "mdi:tag-outline"),
+            ("month_avg_rate", "revenue/month/avg_rate", "Month Avg Agile Rate", "p/kWh", "mdi:chart-line"),
             ("month_import_cost", "revenue/month/import_cost_pence", "Month Import Cost", "p", "mdi:cash-remove"),
             ("month_import_kwh", "revenue/month/import_kwh", "Month Imported", "kWh", "mdi:lightning-bolt-outline"),
             ("month_net_revenue", "revenue/month/net_revenue_pence", "Month Net Revenue", "p", "mdi:cash-check"),

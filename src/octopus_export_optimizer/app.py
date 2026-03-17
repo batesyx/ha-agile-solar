@@ -329,6 +329,7 @@ class Application:
                 avg_load,
                 extra_buffer,
                 self.settings.battery.capacity_kwh,
+                safety_margin=self.settings.inverter_control.evening_reserve_safety_margin,
             )
 
         # Calculate solar-aware overnight charge target
@@ -783,6 +784,7 @@ class Application:
                 avg_load,
                 self.inverter_controller.extra_buffer_kwh,
                 self.settings.battery.capacity_kwh,
+                safety_margin=self.settings.inverter_control.evening_reserve_safety_margin,
             )
             self.mqtt_publisher.publish_control_state(
                 auto_control_enabled=self.inverter_controller.auto_control_enabled,

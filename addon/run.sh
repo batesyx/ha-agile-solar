@@ -32,6 +32,7 @@ SOLAR_CHARGE_PER_SLOT=$(jq -r '.solar_charge_kwh_per_slot // 0.75' "$CONFIG_PATH
 SOLAR_FORECAST_TODAY=$(jq -r '.solar_forecast_today_entity // ""' "$CONFIG_PATH")
 SOLAR_FORECAST_TOMORROW=$(jq -r '.solar_forecast_tomorrow_entity // ""' "$CONFIG_PATH")
 FORECAST_MIN_KWH=$(jq -r '.solar_forecast_minimum_kwh // 10.0' "$CONFIG_PATH")
+EVENING_RESERVE_MARGIN=$(jq -r '.evening_reserve_safety_margin // 1.5' "$CONFIG_PATH")
 
 # HA Supervisor provides the token and URL automatically
 HA_TOKEN="${SUPERVISOR_TOKEN}"
@@ -130,6 +131,7 @@ inverter_control:
   winter_max_soc_pct: ${WINTER_MAX_SOC}
   solar_charge_kwh_per_slot: ${SOLAR_CHARGE_PER_SLOT}
   solar_forecast_minimum_kwh: ${FORECAST_MIN_KWH}
+  evening_reserve_safety_margin: ${EVENING_RESERVE_MARGIN}
 
 db_path: "/data/optimizer.db"
 log_level: "INFO"

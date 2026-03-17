@@ -115,6 +115,7 @@ class InverterControlSettings(BaseModel):
     winter_max_soc_pct: float = 0.95  # Max overnight charge Oct-Feb
     solar_charge_kwh_per_slot: float = 0.75  # kWh per 30-min solar slot
     solar_forecast_minimum_kwh: float = 10.0  # Min forecast kWh to reduce overnight charge
+    evening_reserve_safety_margin: float = 1.5  # Multiplier on calculated evening reserve
 
 
 class HaEntityIds(BaseModel):

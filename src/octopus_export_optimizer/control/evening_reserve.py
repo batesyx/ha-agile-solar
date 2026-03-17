@@ -29,6 +29,7 @@ def calculate_reserve_soc(
     avg_load_kw: float,
     extra_buffer_kwh: float,
     battery_capacity_kwh: float,
+    safety_margin: float = 1.0,
 ) -> float:
     """Calculate the minimum SoC fraction to reserve for evening self-consumption.
 
@@ -63,7 +64,7 @@ def calculate_reserve_soc(
     if hours_on_battery <= 0:
         return 0.10
 
-    kwh_needed = hours_on_battery * avg_load_kw + extra_buffer_kwh
+    kwh_needed = (hours_on_battery * avg_load_kw + extra_buffer_kwh) * safety_margin
     soc_fraction = kwh_needed / battery_capacity_kwh
 
     return max(0.10, min(0.90, soc_fraction))
