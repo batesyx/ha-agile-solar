@@ -35,6 +35,7 @@ class RecommendationInputSnapshot(BaseModel):
     battery_headroom_kwh: float | None = None
     tariff_data_age_minutes: float | None = None
     overnight_charge_target_pct: float | None = None
+    effective_reserve_soc: float | None = None  # slider-adjusted reserve (fraction 0.0-1.0)
 
 
 class Recommendation(BaseModel):

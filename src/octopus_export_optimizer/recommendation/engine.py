@@ -270,6 +270,7 @@ class RecommendationEngine:
         # Battery-derived metrics
         exportable_kwh: float | None = None
         headroom_kwh: float | None = None
+        effective_floor: float | None = None
         battery_soc: float | None = None
         feed_in: float | None = None
         pv_power: float | None = None
@@ -328,4 +329,5 @@ class RecommendationEngine:
             battery_headroom_kwh=headroom_kwh,
             tariff_data_age_minutes=tariff_data_age_minutes,
             overnight_charge_target_pct=overnight_charge_target_pct,
+            effective_reserve_soc=effective_floor,
         )
