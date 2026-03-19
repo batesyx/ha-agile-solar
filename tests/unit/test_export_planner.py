@@ -63,8 +63,8 @@ class TestBuildExportPlan:
         assert plan is not None
         assert len(plan.planned_slots) == 1
         assert plan.planned_slots[0].rate_pence == 25.0
-        # All slots discharge at max power; SOC guard handles cutoff
-        assert plan.discharge_kw == 5.0
+        # Single slot: effective=2.0*0.949=1.90, 1.90/0.5=3.80 kW (under max)
+        assert plan.discharge_kw == pytest.approx(plan.planned_slots[0].expected_kwh / 0.5, abs=0.01)
 
     def test_multiple_slots_highest_rates_selected(self):
         slots = [_slot(1, 25), _slot(2, 15), _slot(3, 30), _slot(4, 20)]
@@ -84,24 +84,37 @@ class TestBuildExportPlan:
         assert len(plan.planned_slots) == 2
 
     def test_discharge_power_clamped_to_max(self):
-        # 1 slot, 8 kWh → would need 16 kW but max is 5 kW
+        # 1 slot, 8 kWh → even_kw = 8*0.949/0.5 = 15.2 kW, clamped to 5 kW
         plan = _plan(exportable=8.0, slots=[_slot(1, 25)], max_kw=5.0)
         assert plan is not None
         assert plan.discharge_kw <= 5.0
 
-    def test_all_slots_get_max_power(self):
+    def test_all_slots_get_even_power(self):
         slots = [_slot(1, 25), _slot(2, 30), _slot(3, 20)]
         plan = _plan(exportable=6.0, slots=slots, max_kw=5.0)
         assert plan is not None
-        # All slots discharge at max power; SOC guard stops discharge
-        # when reserve is reached, so partial slots finish early rather
-        # than tapering power.
+        # 6.0 × sqrt(0.90) ≈ 5.69 kWh across 3 slots → 1.90 kWh each → 3.80 kW
         for slot in plan.planned_slots:
-            assert slot.discharge_kw == 5.0
+            assert slot.discharge_kw == pytest.approx(slot.discharge_kw, abs=0.01)
+            assert slot.discharge_kw < 5.0  # even distribution means below max
+        # All slots get identical power
+        powers = {s.discharge_kw for s in plan.planned_slots}
+        assert len(powers) == 1
+
+    def test_even_distribution_across_4_slots(self):
+        slots = [_slot(1, 30), _slot(2, 25), _slot(3, 22), _slot(4, 20)]
+        # 8 kWh × sqrt(0.90) ≈ 7.59 → 4 slots → 1.90 kWh each → 3.80 kW
+        plan = _plan(exportable=8.0, slots=slots, max_kw=5.0)
+        assert plan is not None
+        assert len(plan.planned_slots) == 4
+        kwhs = [s.expected_kwh for s in plan.planned_slots]
+        assert all(abs(k - kwhs[0]) < 0.01 for k in kwhs)  # all equal
+        assert plan.discharge_kw < 5.0  # even spread means gentler
 
     def test_more_energy_than_slots_uses_all_slots(self):
         slots = [_slot(1, 25), _slot(2, 20)]
-        # 10 kWh but only 2 slots → 10/(2×0.5) = 10 kW, clamped to 5 kW
+        # 10 kWh × sqrt(0.90) ≈ 9.49 across 2 slots → 4.75 kWh each → 9.49 kW
+        # but clamped to max_discharge_kw=5.0
         plan = _plan(exportable=10.0, slots=slots, max_kw=5.0)
         assert plan is not None
         assert len(plan.planned_slots) == 2
@@ -142,29 +155,21 @@ class TestBuildExportPlan:
         starts = [s.interval_start for s in plan.planned_slots]
         assert starts == sorted(starts)
 
-    def test_small_partial_slot_kept(self):
-        """Partial slot with >= 0.1 kWh should be kept, not dropped."""
+    def test_all_slots_get_equal_energy(self):
+        """Even distribution gives each slot the same kWh."""
         slots = [_slot(1, 30), _slot(2, 25)]
-        # 5.3 kWh × sqrt(0.90) ≈ 5.03 → 2.5 + 2.5 + 0.03 remainder
-        # But let's use exact values: 2 full slots + small partial
-        # exportable=5.5 → effective=5.5*0.949=5.22 → 2.5+2.5+0.22 → 0.22 kept
         plan = _plan(exportable=5.5, slots=slots, max_kw=5.0)
         assert plan is not None
         assert len(plan.planned_slots) == 2
-        # Both slots should be present (0.22 kWh remainder goes to 2nd slot)
-        assert plan.total_planned_kwh > 4.9
+        kwhs = [s.expected_kwh for s in plan.planned_slots]
+        assert abs(kwhs[0] - kwhs[1]) < 0.01  # equal allocation
 
-    def test_tiny_partial_slot_dropped(self):
-        """Partial slot with < 0.1 kWh should be dropped."""
+    def test_tiny_even_allocation_dropped(self):
+        """If even allocation per slot < 0.1 kWh, plan returns None."""
+        # 0.05 kWh × sqrt(0.90) ≈ 0.047, only 1 slot needed, 0.047 < 0.1 → dropped
         slots = [_slot(1, 30), _slot(2, 25), _slot(3, 20)]
-        # Need exportable that leaves < 0.1 kWh for last slot
-        # effective = exportable * sqrt(0.90), max_per_slot = 2.5
-        # Want exactly 2 full slots + tiny remainder: 5.0 / 0.949 ≈ 5.27
-        # effective = 5.27 * 0.949 ≈ 5.0 → 2.5 + 2.5 + 0.0 → exactly 2 slots
-        # Use 5.3 → effective = 5.3 * 0.949 ≈ 5.03 → 2.5 + 2.5 + 0.03 → dropped
-        plan = _plan(exportable=5.3, slots=slots, max_kw=5.0)
-        assert plan is not None
-        assert len(plan.planned_slots) == 2  # 3rd slot dropped (0.03 < 0.1)
+        plan = _plan(exportable=0.05, slots=slots, max_kw=5.0)
+        assert plan is None
 
     def test_plan_fields_populated(self):
         plan = _plan(exportable=5.0, max_kw=5.0)

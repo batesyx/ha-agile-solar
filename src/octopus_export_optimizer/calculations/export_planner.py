@@ -69,13 +69,10 @@ def build_export_plan(
     selected = eligible[:slots_needed]
     selected_count = len(selected)
 
-    # Allocate energy to highest-rate slots first at max power
-    remaining = effective_kwh
-    allocations = []
-    for slot in selected:  # already sorted by rate desc
-        alloc_kwh = min(remaining, max_kwh_per_slot)
-        allocations.append((slot, alloc_kwh))
-        remaining -= alloc_kwh
+    # Distribute energy evenly across all selected slots
+    even_kwh_per_slot = effective_kwh / selected_count
+    even_kw = min(max_discharge_kw, even_kwh_per_slot / 0.5)
+    allocations = [(slot, even_kwh_per_slot) for slot in selected]
 
     # Drop partial slots with < 0.1 kWh — not worth inverter switching overhead
     allocations = [(s, kwh) for s, kwh in allocations if kwh >= 0.1]
@@ -86,12 +83,11 @@ def build_export_plan(
     # Build planned slots, sorted by time for easy lookup
     planned = []
     for slot, kwh in sorted(allocations, key=lambda x: x[0].interval_start):
-        kw = max_discharge_kw
         planned.append(PlannedSlot(
             interval_start=slot.interval_start,
             interval_end=slot.interval_end,
             rate_pence=slot.rate_inc_vat_pence,
-            discharge_kw=round(kw, 3),
+            discharge_kw=round(even_kw, 3),
             expected_kwh=round(kwh, 4),
         ))
 
