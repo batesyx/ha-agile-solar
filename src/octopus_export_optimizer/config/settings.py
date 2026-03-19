@@ -104,7 +104,6 @@ class InverterControlSettings(BaseModel):
     cheap_rate_start_hour: float = 23.5  # 23:30
     cheap_rate_end_hour: float = 5.5  # 05:30
     high_export_threshold_for_full_charge: float = 20.0  # p/kWh
-    default_evening_load_kw: float = 1.0
     fallback_on_insufficient_data: str = "feed_in_first"  # "feed_in_first" or "none"
     full_charge_lead_time_hours: float = 1.5  # hours before peak to raise max_soc to 100%
     export_planner_enabled: bool = False  # Enable multi-slot export planning
@@ -115,7 +114,6 @@ class InverterControlSettings(BaseModel):
     winter_max_soc_pct: float = 0.95  # Max overnight charge Oct-Feb
     solar_charge_kwh_per_slot: float = 0.75  # kWh per 30-min solar slot
     solar_forecast_minimum_kwh: float = 10.0  # Min forecast kWh to reduce overnight charge
-    evening_reserve_safety_margin: float = 1.5  # Multiplier on calculated evening reserve
 
 
 class HaEntityIds(BaseModel):

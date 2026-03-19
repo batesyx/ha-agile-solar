@@ -401,9 +401,7 @@ class MqttPublisher:
     def publish_control_state(
         self,
         auto_control_enabled: bool,
-        extra_buffer_kwh: float,
         commanded_mode: str | None,
-        evening_reserve_soc: float | None,
         last_command_info: str | None,
     ) -> None:
         """Publish inverter control state entities."""
@@ -413,18 +411,8 @@ class MqttPublisher:
             retain=True,
         )
         self._publish(
-            f"{self.prefix}/control/extra_buffer/state",
-            f"{extra_buffer_kwh:.1f}",
-            retain=True,
-        )
-        self._publish(
             f"{self.prefix}/control/commanded_mode",
             commanded_mode or "unknown",
-            retain=True,
-        )
-        self._publish(
-            f"{self.prefix}/control/evening_reserve_soc",
-            f"{evening_reserve_soc:.0%}" if evening_reserve_soc is not None else "N/A",
             retain=True,
         )
         self._publish(
@@ -591,28 +579,36 @@ class MqttPublisher:
         self._client.message_callback_add(topic, _on_message)
         logger.info("Subscribed to kill switch: %s", topic)
 
-    def subscribe_buffer(self, on_change: Callable[[float], None]) -> None:
-        """Subscribe to extra buffer slider command topic."""
-        topic = f"{self.prefix}/control/extra_buffer/set"
+    def subscribe_evening_reserve(self, on_change: Callable[[float], None]) -> None:
+        """Subscribe to evening reserve slider command topic."""
+        topic = f"{self.prefix}/control/evening_reserve/set"
 
         def _on_message(
             client: mqtt.Client, userdata: object, msg: mqtt.MQTTMessage
         ) -> None:
             try:
                 value = float(msg.payload.decode())
-                logger.info("Buffer slider changed: %.1f kWh", value)
+                logger.info("Evening reserve slider changed: %.0f%%", value)
                 on_change(value)
                 self._publish(
-                    f"{self.prefix}/control/extra_buffer/state",
-                    f"{value:.1f}",
+                    f"{self.prefix}/control/evening_reserve/state",
+                    f"{value:.0f}",
                     retain=True,
                 )
             except ValueError:
-                logger.warning("Invalid buffer value: %s", msg.payload)
+                logger.warning("Invalid evening reserve value: %s", msg.payload)
 
         self._client.subscribe(topic)
         self._client.message_callback_add(topic, _on_message)
-        logger.info("Subscribed to buffer slider: %s", topic)
+        logger.info("Subscribed to evening reserve slider: %s", topic)
+
+    def publish_evening_reserve_state(self, pct: float) -> None:
+        """Publish retained evening reserve state so the slider shows a value on startup."""
+        self._publish(
+            f"{self.prefix}/control/evening_reserve/state",
+            f"{pct:.0f}",
+            retain=True,
+        )
 
     def _publish(self, topic: str, payload: str, retain: bool = False) -> None:
         """Publish a message to MQTT."""
@@ -733,7 +729,6 @@ class MqttPublisher:
         # Control sensors
         control_sensors = [
             ("commanded_mode", "control/commanded_mode", "Commanded Work Mode", None, "mdi:tune"),
-            ("evening_reserve_soc", "control/evening_reserve_soc", "Evening Reserve SoC", None, "mdi:battery-alert"),
             ("last_command", "control/last_command", "Last Inverter Command", None, "mdi:history"),
         ]
         for object_id, state_suffix, name, unit, icon in control_sensors:
@@ -769,24 +764,31 @@ class MqttPublisher:
         )
         self._publish(topic, json.dumps(switch_config), retain=True)
 
-        # Buffer slider (MQTT number entity, 0-10 kWh)
+        # Evening reserve slider (MQTT number entity, 10-90%)
         number_config = {
-            "name": "Extra Evening Buffer",
-            "state_topic": f"{self.prefix}/control/extra_buffer/state",
-            "command_topic": f"{self.prefix}/control/extra_buffer/set",
-            "unique_id": "octopus_export_optimizer_extra_buffer",
+            "name": "Evening Reserve SoC",
+            "state_topic": f"{self.prefix}/control/evening_reserve/state",
+            "command_topic": f"{self.prefix}/control/evening_reserve/set",
+            "unique_id": "octopus_export_optimizer_evening_reserve_soc",
             "device": DEVICE_INFO,
-            "icon": "mdi:pot-steam",
-            "min": 0,
-            "max": 10,
-            "step": 0.5,
-            "unit_of_measurement": "kWh",
+            "icon": "mdi:battery-alert",
+            "min": 10,
+            "max": 90,
+            "step": 5,
+            "unit_of_measurement": "%",
         }
         topic = (
             f"{self.discovery_prefix}/number"
-            f"/octopus_export_optimizer/extra_buffer/config"
+            f"/octopus_export_optimizer/evening_reserve_soc/config"
         )
         self._publish(topic, json.dumps(number_config), retain=True)
+
+        # Clean up old discovery entities (removed in this version)
+        for stale_topic in [
+            f"{self.discovery_prefix}/sensor/octopus_export_optimizer/evening_reserve_soc/config",
+            f"{self.discovery_prefix}/number/octopus_export_optimizer/extra_buffer/config",
+        ]:
+            self._publish(stale_topic, "", retain=True)
 
         # Binary sensor for service status
         status_config = {

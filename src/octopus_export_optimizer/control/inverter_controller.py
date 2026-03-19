@@ -40,7 +40,7 @@ class InverterController:
         self.command_repo = command_repo
 
         self._auto_control_enabled: bool = False
-        self._extra_buffer_kwh: float = 0.0
+        self._evening_reserve_pct: float = 20.0
         self._last_commanded_mode: WorkMode | None = None
         self._last_commanded_max_soc: int | None = None
         self._last_commanded_charge_kw: float | None = None
@@ -61,8 +61,8 @@ class InverterController:
         return self._auto_control_enabled
 
     @property
-    def extra_buffer_kwh(self) -> float:
-        return self._extra_buffer_kwh
+    def evening_reserve_pct(self) -> float:
+        return self._evening_reserve_pct
 
     @property
     def last_commanded_mode(self) -> WorkMode | None:
@@ -73,10 +73,10 @@ class InverterController:
         self._auto_control_enabled = enabled
         logger.info("Auto control %s", "enabled" if enabled else "disabled")
 
-    def set_extra_buffer(self, kwh: float) -> None:
-        """Set by MQTT buffer slider callback."""
-        self._extra_buffer_kwh = max(0.0, min(10.0, kwh))
-        logger.info("Extra buffer set to %.1f kWh", self._extra_buffer_kwh)
+    def set_evening_reserve(self, pct: float) -> None:
+        """Set by MQTT evening reserve slider callback."""
+        self._evening_reserve_pct = max(10.0, min(90.0, pct))
+        logger.info("Evening reserve set to %.0f%%", self._evening_reserve_pct)
 
     def execute(self, recommendation: Recommendation) -> CommandResult | None:
         """Execute inverter control based on a recommendation.

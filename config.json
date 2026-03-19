@@ -1,6 +1,6 @@
 {
   "name": "Octopus Export Optimizer",
-  "version": "0.9.9",
+  "version": "0.10.0",
   "init": false,
   "slug": "octopus_export_optimizer",
   "description": "Optimizes electricity export on Octopus Agile/Variable tariffs with FoxESS inverter",
@@ -46,8 +46,7 @@
     "solar_charge_kwh_per_slot": 0.75,
     "solar_forecast_minimum_kwh": 10.0,
     "solar_forecast_today_entity": "",
-    "solar_forecast_tomorrow_entity": "",
-    "evening_reserve_safety_margin": 1.5
+    "solar_forecast_tomorrow_entity": ""
   },
   "schema": {
     "octopus_api_key": "password",
@@ -75,7 +74,6 @@
     "solar_charge_kwh_per_slot": "float",
     "solar_forecast_minimum_kwh": "float",
     "solar_forecast_today_entity": "str",
-    "solar_forecast_tomorrow_entity": "str",
-    "evening_reserve_safety_margin": "float"
+    "solar_forecast_tomorrow_entity": "str"
   }
 }

@@ -18,10 +18,6 @@ from octopus_export_optimizer.models.export_plan import ExportPlan
 from octopus_export_optimizer.calculations.revenue_estimator import estimate_revenue
 from octopus_export_optimizer.calculations.solar_profile import SolarProfile
 from octopus_export_optimizer.config.settings import AppSettings
-from octopus_export_optimizer.control.evening_reserve import (
-    calculate_reserve_soc,
-    get_rolling_avg_evening_load,
-)
 from octopus_export_optimizer.control.inverter_controller import InverterController
 from octopus_export_optimizer.ingestion.ha_state_ingester import HaStateIngester
 from octopus_export_optimizer.ingestion.meter_ingester import MeterIngester
@@ -155,8 +151,11 @@ class Application:
                     self.mqtt_publisher.subscribe_kill_switch(
                         self.inverter_controller.set_auto_control
                     )
-                    self.mqtt_publisher.subscribe_buffer(
-                        self.inverter_controller.set_extra_buffer
+                    self.mqtt_publisher.subscribe_evening_reserve(
+                        self.inverter_controller.set_evening_reserve
+                    )
+                    self.mqtt_publisher.publish_evening_reserve_state(
+                        self.inverter_controller.evening_reserve_pct
                     )
             except Exception as e:
                 logger.warning("Could not connect to MQTT broker: %s", e)
@@ -314,23 +313,10 @@ class Application:
                 )
                 ha_state = None
 
-        # Calculate dynamic evening reserve if controller is active
+        # Evening reserve from user-adjustable slider (fraction 0.0-1.0)
         reserve: float | None = None
         if self.inverter_controller:
-            extra_buffer = self.inverter_controller.extra_buffer_kwh
-            avg_load = get_rolling_avg_evening_load(
-                self.ha_state_repo,
-                now,
-                default_kw=self.settings.inverter_control.default_evening_load_kw,
-            )
-            reserve = calculate_reserve_soc(
-                now,
-                self.settings.inverter_control.cheap_rate_start_hour,
-                avg_load,
-                extra_buffer,
-                self.settings.battery.capacity_kwh,
-                safety_margin=self.settings.inverter_control.evening_reserve_safety_margin,
-            )
+            reserve = self.inverter_controller.evening_reserve_pct / 100.0
 
         # Calculate solar-aware overnight charge target
         overnight_target: float | None = None
@@ -772,31 +758,11 @@ class Application:
                     f"{last_cmd.timestamp.strftime('%H:%M:%S')} "
                     f"({last_cmd.reason_code})"
                 )
-            # Calculate current evening reserve for display
-            avg_load = get_rolling_avg_evening_load(
-                self.ha_state_repo,
-                now,
-                default_kw=self.settings.inverter_control.default_evening_load_kw,
-            )
-            reserve = calculate_reserve_soc(
-                now,
-                self.settings.inverter_control.cheap_rate_start_hour,
-                avg_load,
-                self.inverter_controller.extra_buffer_kwh,
-                self.settings.battery.capacity_kwh,
-                safety_margin=self.settings.inverter_control.evening_reserve_safety_margin,
-            )
             self.mqtt_publisher.publish_control_state(
                 auto_control_enabled=self.inverter_controller.auto_control_enabled,
-                extra_buffer_kwh=self.inverter_controller.extra_buffer_kwh,
                 commanded_mode=(
                     self.inverter_controller.last_commanded_mode.value
                     if self.inverter_controller.last_commanded_mode
-                    else None
-                ),
-                evening_reserve_soc=(
-                    max(self.settings.thresholds.reserve_soc_floor, reserve)
-                    if reserve is not None
                     else None
                 ),
                 last_command_info=last_cmd_info,
