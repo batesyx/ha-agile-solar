@@ -213,24 +213,13 @@ class TestHoldBatteryRule:
         result = rule.evaluate(snapshot)
         assert result is None
 
-    def test_soc_at_reserve_floor_does_not_hold(self, thresholds, battery):
-        """SoC at reserve floor (20%) — within 1% buffer, nothing to hold."""
+    def test_soc_at_reserve_floor_still_holds(self, thresholds, battery):
+        """SoC at reserve floor (20%) — still holds (0.20 is not < 0.20)."""
         rule = HoldBatteryRule(thresholds, battery)
         snapshot = make_recommendation_snapshot(
             current_export_rate=16.0,
             best_upcoming_rate=25.0,
             battery_soc_pct=20.0,
-        )
-        result = rule.evaluate(snapshot)
-        assert result is None
-
-    def test_soc_above_reserve_buffer_still_holds(self, thresholds, battery):
-        """SoC above reserve + 1% buffer (22%) — still holds."""
-        rule = HoldBatteryRule(thresholds, battery)
-        snapshot = make_recommendation_snapshot(
-            current_export_rate=16.0,
-            best_upcoming_rate=25.0,
-            battery_soc_pct=22.0,
         )
         result = rule.evaluate(snapshot)
         assert result is not None

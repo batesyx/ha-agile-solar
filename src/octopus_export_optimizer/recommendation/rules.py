@@ -247,11 +247,11 @@ class PlannedExportRule(Rule):
         current_slot = self.plan.get_current_slot(snapshot.timestamp)
 
         if current_slot is not None:
-            # Check SOC is still above reserve (+1% buffer for polling delay)
+            # Check SOC is still above reserve
             if snapshot.battery_soc_pct is not None:
                 soc = self._normalize_soc(snapshot.battery_soc_pct)
                 reserve = snapshot.effective_reserve_soc or self.thresholds.reserve_soc_floor
-                if soc <= reserve + 0.01:
+                if soc <= reserve:
                     return None  # Battery at reserve, fall through
 
             rec = self._make_recommendation(
@@ -334,7 +334,7 @@ class ExportNowRule(Rule):
             soc = self._normalize_soc(snapshot.battery_soc_pct)
             min_export_soc = max(
                 self.thresholds.minimum_soc_for_export,
-                (snapshot.effective_reserve_soc or 0) + 0.01,
+                snapshot.effective_reserve_soc or 0,
             )
             if soc < min_export_soc:
                 # Battery too low to export — check if solar is feeding in
@@ -399,7 +399,7 @@ class HoldBatteryRule(Rule):
         if battery_aware:
             soc = self._normalize_soc(snapshot.battery_soc_pct)
             reserve = snapshot.effective_reserve_soc or self.thresholds.reserve_soc_floor
-            if soc < reserve + 0.01:
+            if soc < reserve:
                 return None  # Nothing to hold
 
             # Consider remaining generation opportunity
