@@ -21,7 +21,7 @@ class ExportPlan(BaseModel):
     """A complete discharge schedule across multiple half-hour slots.
 
     Built by the export planner, consumed by PlannedExportRule.
-    Recalculated every 60s — not persisted.
+    Locked once slots are in progress; recalculated after the last slot ends.
     """
 
     created_at: datetime

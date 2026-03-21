@@ -24,6 +24,7 @@ CHEAP_RATE_START=$(jq -r '.cheap_rate_start_hour // 23.5' "$CONFIG_PATH")
 CHEAP_RATE_END=$(jq -r '.cheap_rate_end_hour // 5.5' "$CONFIG_PATH")
 EXPORT_PLANNER=$(jq -r '.export_planner_enabled // false' "$CONFIG_PATH")
 MAX_DISCHARGE_KW=$(jq -r '.max_discharge_kw // 5.0' "$CONFIG_PATH")
+MAX_EXPORT_SLOTS=$(jq -r '.max_export_slots // 4' "$CONFIG_PATH")
 SOLAR_OVERNIGHT=$(jq -r '.solar_overnight_enabled // false' "$CONFIG_PATH")
 MIN_OVERNIGHT_SOC=$(jq -r '.minimum_overnight_soc_pct // 0.40' "$CONFIG_PATH")
 SOLAR_MONTHS_MAX_SOC=$(jq -r '.solar_months_max_soc_pct // 0.80' "$CONFIG_PATH")
@@ -125,6 +126,7 @@ inverter_control:
   cheap_rate_end_hour: ${CHEAP_RATE_END}
   export_planner_enabled: ${EXPORT_PLANNER}
   max_discharge_kw: ${MAX_DISCHARGE_KW}
+  max_export_slots: ${MAX_EXPORT_SLOTS}
   solar_overnight_enabled: ${SOLAR_OVERNIGHT}
   minimum_overnight_soc_pct: ${MIN_OVERNIGHT_SOC}
   solar_months_max_soc_pct: ${SOLAR_MONTHS_MAX_SOC}

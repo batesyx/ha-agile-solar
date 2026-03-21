@@ -414,22 +414,32 @@ class Application:
             tariff_data_age_minutes=tariff_data_age,
             overnight_charge_target_pct=overnight_target,
         )
-        # Build export plan if enabled and there's exportable energy
-        export_plan = None
-        if (
-            self.settings.inverter_control.export_planner_enabled
-            and snapshot.exportable_battery_kwh
-            and snapshot.exportable_battery_kwh > 0
-        ):
-            export_plan = build_export_plan(
-                now=now,
-                upcoming_slots=upcoming_12h,
-                exportable_kwh=snapshot.exportable_battery_kwh,
-                export_threshold_pence=self.settings.thresholds.export_now_threshold_pence,
-                max_discharge_kw=self.settings.inverter_control.max_discharge_kw,
-                battery_capacity_kwh=self.settings.battery.capacity_kwh,
-                round_trip_efficiency=self.settings.battery.round_trip_efficiency,
-            )
+        # Build export plan if enabled and there's exportable energy.
+        # Lock the plan once slots are in progress — only recalculate
+        # after the last planned slot has ended.
+        export_plan = self._current_export_plan
+        plan_active = (
+            export_plan is not None
+            and export_plan.planned_slots
+            and now < export_plan.planned_slots[-1].interval_end
+        )
+        if not plan_active:
+            export_plan = None
+            if (
+                self.settings.inverter_control.export_planner_enabled
+                and snapshot.exportable_battery_kwh
+                and snapshot.exportable_battery_kwh > 0
+            ):
+                export_plan = build_export_plan(
+                    now=now,
+                    upcoming_slots=upcoming_12h,
+                    exportable_kwh=snapshot.exportable_battery_kwh,
+                    export_threshold_pence=self.settings.thresholds.export_now_threshold_pence,
+                    max_discharge_kw=self.settings.inverter_control.max_discharge_kw,
+                    battery_capacity_kwh=self.settings.battery.capacity_kwh,
+                    round_trip_efficiency=self.settings.battery.round_trip_efficiency,
+                    max_export_slots=self.settings.inverter_control.max_export_slots,
+                )
 
         self._current_export_plan = export_plan
         if export_plan:

@@ -7,7 +7,6 @@ balancing revenue with battery longevity.
 
 from __future__ import annotations
 
-import math
 from datetime import datetime, timezone
 
 from octopus_export_optimizer.models.export_plan import ExportPlan, PlannedSlot
@@ -22,6 +21,7 @@ def build_export_plan(
     max_discharge_kw: float,
     battery_capacity_kwh: float,
     round_trip_efficiency: float,
+    max_export_slots: int = 4,
 ) -> ExportPlan | None:
     """Build an optimal discharge schedule from upcoming tariff slots.
 
@@ -61,12 +61,8 @@ def build_export_plan(
     # Sort by rate descending (greedy: highest value first)
     eligible.sort(key=lambda s: s.rate_inc_vat_pence, reverse=True)
 
-    # Calculate how many slots we need at max comfortable discharge
-    max_kwh_per_slot = max_discharge_kw * 0.5  # 30-minute slots
-    slots_needed = math.ceil(effective_kwh / max_kwh_per_slot)
-
-    # Take the top N slots by rate
-    selected = eligible[:slots_needed]
+    # Take the top N slots by rate, capped to max_export_slots
+    selected = eligible[:max_export_slots]
     selected_count = len(selected)
 
     # Distribute energy evenly across all selected slots

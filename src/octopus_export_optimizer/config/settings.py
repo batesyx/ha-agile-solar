@@ -108,6 +108,7 @@ class InverterControlSettings(BaseModel):
     full_charge_lead_time_hours: float = 1.5  # hours before peak to raise max_soc to 100%
     export_planner_enabled: bool = False  # Enable multi-slot export planning
     max_discharge_kw: float = 5.0  # ~24A, under 25A continuous target
+    max_export_slots: int = 4  # Number of top-paying slots to discharge across
     solar_overnight_enabled: bool = False  # Enable solar-aware overnight charging
     minimum_overnight_soc_pct: float = 0.40  # Never charge below 40%
     solar_months_max_soc_pct: float = 0.80  # Max overnight charge Mar-Sep

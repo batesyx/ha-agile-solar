@@ -26,6 +26,7 @@ def _plan(
     slots=None,
     threshold: float = 15.0,
     max_kw: float = 5.0,
+    max_slots: int = 4,
 ):
     """Build a plan with sensible defaults."""
     if slots is None:
@@ -38,6 +39,7 @@ def _plan(
         max_discharge_kw=max_kw,
         battery_capacity_kwh=11.52,
         round_trip_efficiency=0.90,
+        max_export_slots=max_slots,
     )
 
 
@@ -68,20 +70,22 @@ class TestBuildExportPlan:
 
     def test_multiple_slots_highest_rates_selected(self):
         slots = [_slot(1, 25), _slot(2, 15), _slot(3, 30), _slot(4, 20)]
-        plan = _plan(exportable=5.0, slots=slots, max_kw=5.0)
+        # With max_slots=2, only top 2 by rate are selected
+        plan = _plan(exportable=5.0, slots=slots, max_kw=5.0, max_slots=2)
         assert plan is not None
-        # max_kwh_per_slot = 5 × 0.5 = 2.5, slots_needed = ceil(5/2.5) = 2
         assert len(plan.planned_slots) == 2
-        # Should pick 30p and 25p slots (top 2 by rate)
         rates = {s.rate_pence for s in plan.planned_slots}
         assert rates == {25.0, 30.0}
 
-    def test_energy_budget_limits_slot_count(self):
-        slots = [_slot(i, 20 + i) for i in range(1, 7)]  # 6 slots
-        # 5 kWh × sqrt(0.90) ≈ 4.74, ceil(4.74/2.5) = 2 slots
-        plan = _plan(exportable=5.0, slots=slots, max_kw=5.0)
+    def test_max_slots_limits_slot_count(self):
+        slots = [_slot(i, 20 + i) for i in range(1, 7)]  # 6 eligible slots
+        # max_export_slots=4, so only top 4 by rate are selected
+        plan = _plan(exportable=5.0, slots=slots, max_kw=5.0, max_slots=4)
         assert plan is not None
-        assert len(plan.planned_slots) == 2
+        assert len(plan.planned_slots) == 4
+        # Should pick the top 4 rates: 26, 25, 24, 23
+        rates = {s.rate_pence for s in plan.planned_slots}
+        assert rates == {23.0, 24.0, 25.0, 26.0}
 
     def test_discharge_power_clamped_to_max(self):
         # 1 slot, 8 kWh → even_kw = 8*0.949/0.5 = 15.2 kW, clamped to 5 kW
@@ -110,6 +114,13 @@ class TestBuildExportPlan:
         kwhs = [s.expected_kwh for s in plan.planned_slots]
         assert all(abs(k - kwhs[0]) < 0.01 for k in kwhs)  # all equal
         assert plan.discharge_kw < 5.0  # even spread means gentler
+
+    def test_fewer_eligible_than_max_uses_all_eligible(self):
+        """When fewer eligible slots than max_export_slots, use all eligible."""
+        slots = [_slot(1, 25), _slot(2, 20)]  # only 2 eligible
+        plan = _plan(exportable=5.0, slots=slots, max_kw=5.0, max_slots=4)
+        assert plan is not None
+        assert len(plan.planned_slots) == 2
 
     def test_more_energy_than_slots_uses_all_slots(self):
         slots = [_slot(1, 25), _slot(2, 20)]
