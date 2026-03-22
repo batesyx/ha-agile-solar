@@ -415,15 +415,16 @@ class Application:
             overnight_charge_target_pct=overnight_target,
         )
         # Build export plan if enabled and there's exportable energy.
-        # Lock the plan once slots are in progress — only recalculate
-        # after the last planned slot has ended.
+        # Lock the plan during an active slot (steady discharge power).
+        # Recalculate between slots so remaining energy is redistributed
+        # across remaining slots (compensates for solar reducing battery
+        # draw during earlier slots).
         export_plan = self._current_export_plan
-        plan_active = (
+        in_slot = (
             export_plan is not None
-            and export_plan.planned_slots
-            and now < export_plan.planned_slots[-1].interval_end
+            and export_plan.get_current_slot(now) is not None
         )
-        if not plan_active:
+        if not in_slot:
             export_plan = None
             if (
                 self.settings.inverter_control.export_planner_enabled
