@@ -461,9 +461,11 @@ class Application:
             )
 
         # Build charge plan: identify low-rate solar windows for charging
+        # (not applicable to flat-rate mode — all slots pay the same)
         charge_plan = None
         if (
             self.settings.inverter_control.export_planner_enabled
+            and self.settings.inverter_control.export_tariff_mode != "flat"
             and snapshot.battery_headroom_kwh
             and snapshot.battery_headroom_kwh > 0.1
         ):
