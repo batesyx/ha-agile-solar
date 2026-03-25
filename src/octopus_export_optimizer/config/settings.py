@@ -140,6 +140,7 @@ class HaEntityIds(BaseModel):
     force_discharge_power: str = "number.fox_ess_force_discharge_power"
     solar_forecast_today: str = ""  # e.g. sensor.energy_production_today
     solar_forecast_tomorrow: str = ""  # e.g. sensor.energy_production_tomorrow
+    battery_charge_today: str = "sensor.battery_charge_today"
 
 
 class HaSettings(BaseModel):

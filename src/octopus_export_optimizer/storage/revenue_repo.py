@@ -12,6 +12,15 @@ from octopus_export_optimizer.models.revenue import (
 from octopus_export_optimizer.storage.database import Database
 
 
+def _safe_col(row: object, col: str, default: float = 0.0) -> float:
+    """Safely read a column that may not exist in pre-migration rows."""
+    try:
+        val = row[col]
+        return val if val is not None else default
+    except (IndexError, KeyError):
+        return default
+
+
 class RevenueRepo:
     """CRUD operations for revenue data in SQLite."""
 
@@ -108,8 +117,9 @@ class RevenueRepo:
                     total_intervals, calculated_at,
                     import_cost_pence, total_import_kwh, net_revenue_pence,
                     charging_opportunity_cost_pence, true_profit_pence,
-                    flat_export_kwh, avg_flat_rate_pence)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    flat_export_kwh, avg_flat_rate_pence,
+                    total_charge_kwh, charge_cost_pence, arbitrage_profit_pence)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     summary.period_type,
                     summary.period_key,
@@ -128,6 +138,9 @@ class RevenueRepo:
                     summary.true_profit_pence,
                     summary.flat_export_kwh,
                     summary.avg_flat_rate_pence,
+                    summary.total_charge_kwh,
+                    summary.charge_cost_pence,
+                    summary.arbitrage_profit_pence,
                 ),
             )
             self.db.conn.commit()
@@ -151,7 +164,9 @@ class RevenueRepo:
                 """SELECT period_key, total_export_kwh,
                           agile_revenue_pence, flat_revenue_pence,
                           uplift_pence, avg_realised_rate_pence,
-                          net_revenue_pence
+                          net_revenue_pence,
+                          total_charge_kwh, charge_cost_pence,
+                          arbitrage_profit_pence
                    FROM revenue_summaries
                    WHERE period_type = 'day'
                    ORDER BY period_key DESC
@@ -167,6 +182,9 @@ class RevenueRepo:
                 "uplift_pence": r[4],
                 "avg_rate": r[5],
                 "net_pence": r[6],
+                "battery_charge_kwh": r[7] or 0.0,
+                "charge_cost_pence": r[8] or 0.0,
+                "arbitrage_profit_pence": r[9] or 0.0,
             }
             for r in reversed(rows)
         ]
@@ -262,4 +280,7 @@ class RevenueRepo:
             true_profit_pence=row["true_profit_pence"] or 0.0,
             flat_export_kwh=flat_export_kwh,
             avg_flat_rate_pence=avg_flat_rate,
+            total_charge_kwh=_safe_col(row, "total_charge_kwh", 0.0),
+            charge_cost_pence=_safe_col(row, "charge_cost_pence", 0.0),
+            arbitrage_profit_pence=_safe_col(row, "arbitrage_profit_pence", 0.0),
         )

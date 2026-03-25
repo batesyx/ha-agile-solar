@@ -525,6 +525,12 @@ class Application:
         now = datetime.now(timezone.utc)
         today = date.today()
 
+        # Get today's battery charge from latest HA state
+        battery_charge_today = 0.0
+        latest_state = self.ha_state_repo.get_latest()
+        if latest_state and latest_state.battery_charge_today_kwh is not None:
+            battery_charge_today = latest_state.battery_charge_today_kwh
+
         # Today + recent days (rebuilds any missing day summaries)
         for days_ago in range(min(7, today.day), -1, -1):
             target_date = today - timedelta(days=days_ago)
@@ -533,9 +539,12 @@ class Application:
             day_import = self.revenue_repo.get_import_cost_intervals(
                 day_start, day_end
             )
+            # Only pass battery charge for today (cumulative resets daily)
+            charge_kwh = battery_charge_today if target_date == today else 0.0
             day_summary = self.aggregator.aggregate(
                 day_intervals, "day", target_date.isoformat(),
                 import_cost_intervals=day_import,
+                battery_charge_kwh=charge_kwh,
             )
             if day_summary.total_intervals > 0 or target_date == today:
                 self.revenue_repo.upsert_summary(day_summary)

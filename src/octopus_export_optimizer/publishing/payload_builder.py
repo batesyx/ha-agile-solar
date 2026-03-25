@@ -73,6 +73,9 @@ class PayloadBuilder:
                 "net_revenue_pence": "0.0",
                 "charging_cost_pence": "0.0",
                 "true_profit_pence": "0.0",
+                "battery_charge_kwh": "0.00",
+                "charge_cost_pence": "0.0",
+                "arbitrage_profit_pence": "0.0",
             }
         flat_kwh = summary.flat_export_kwh
         return {
@@ -87,6 +90,9 @@ class PayloadBuilder:
             "net_revenue_pence": f"{summary.net_revenue_pence:.1f}",
             "charging_cost_pence": f"{summary.charging_opportunity_cost_pence:.1f}",
             "true_profit_pence": f"{summary.true_profit_pence:.1f}",
+            "battery_charge_kwh": f"{summary.total_charge_kwh:.2f}",
+            "charge_cost_pence": f"{summary.charge_cost_pence:.1f}",
+            "arbitrage_profit_pence": f"{summary.arbitrage_profit_pence:.1f}",
         }
 
     @staticmethod

@@ -59,6 +59,7 @@ class HaStateIngester:
                 min_soc=self._get_float(entities.min_soc),
                 force_charge_power_kw=self._get_power_kw(entities.force_charge_power),
                 force_discharge_power_kw=self._get_power_kw(entities.force_discharge_power),
+                battery_charge_today_kwh=self._get_float(entities.battery_charge_today),
             )
 
             self.ha_state_repo.insert(snapshot)

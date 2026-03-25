@@ -71,6 +71,11 @@ class RevenueSummary(BaseModel):
     charging_opportunity_cost_pence: float = 0.0
     true_profit_pence: float = 0.0  # net_revenue - opportunity_cost
 
+    # Arbitrage profit tracking
+    total_charge_kwh: float = 0.0
+    charge_cost_pence: float = 0.0
+    arbitrage_profit_pence: float = 0.0
+
     @property
     def agile_revenue_gbp(self) -> float:
         return self.agile_revenue_pence / 100.0

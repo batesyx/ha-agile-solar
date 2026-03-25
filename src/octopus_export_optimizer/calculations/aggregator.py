@@ -24,6 +24,7 @@ class Aggregator:
         period_type: str,
         period_key: str,
         import_cost_intervals: list[ImportCostInterval] | None = None,
+        battery_charge_kwh: float = 0.0,
     ) -> RevenueSummary:
         """Aggregate a list of revenue intervals into a summary.
 
@@ -40,6 +41,10 @@ class Aggregator:
                 import_cost = sum(i.import_cost_pence for i in import_cost_intervals)
                 import_kwh = sum(i.import_kwh for i in import_cost_intervals)
 
+            # Charge cost: use avg import rate if available, else fall back
+            charge_cost = self._calc_charge_cost(
+                battery_charge_kwh, import_cost, import_kwh,
+            )
             return RevenueSummary(
                 period_type=period_type,
                 period_key=period_key,
@@ -54,6 +59,9 @@ class Aggregator:
                 import_cost_pence=round(import_cost, 4),
                 total_import_kwh=round(import_kwh, 4),
                 net_revenue_pence=round(-import_cost, 4),
+                total_charge_kwh=round(battery_charge_kwh, 4),
+                charge_cost_pence=round(charge_cost, 4),
+                arbitrage_profit_pence=round(-charge_cost, 4),
             )
 
         total_kwh = sum(i.export_kwh for i in intervals)
@@ -82,6 +90,11 @@ class Aggregator:
 
         net_rev = agile_rev - import_cost
 
+        charge_cost = self._calc_charge_cost(
+            battery_charge_kwh, import_cost, import_kwh,
+        )
+        arbitrage_profit = agile_rev - charge_cost
+
         return RevenueSummary(
             period_type=period_type,
             period_key=period_key,
@@ -98,7 +111,26 @@ class Aggregator:
             import_cost_pence=round(import_cost, 4),
             total_import_kwh=round(import_kwh, 4),
             net_revenue_pence=round(net_rev, 4),
+            total_charge_kwh=round(battery_charge_kwh, 4),
+            charge_cost_pence=round(charge_cost, 4),
+            arbitrage_profit_pence=round(arbitrage_profit, 4),
         )
+
+    @staticmethod
+    def _calc_charge_cost(
+        battery_charge_kwh: float,
+        import_cost_pence: float,
+        import_kwh: float,
+        fallback_rate_pence: float = 7.5,
+    ) -> float:
+        """Calculate estimated charge cost from battery_charge_kwh × avg import rate."""
+        if battery_charge_kwh <= 0:
+            return 0.0
+        if import_kwh > 0:
+            avg_rate = import_cost_pence / import_kwh
+        else:
+            avg_rate = fallback_rate_pence
+        return battery_charge_kwh * avg_rate
 
     def day_boundaries(self, target_date: date) -> tuple[datetime, datetime]:
         """Get UTC start/end boundaries for a local calendar day."""

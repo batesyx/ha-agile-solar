@@ -27,6 +27,7 @@ class HaStateSnapshot(BaseModel):
     min_soc: float | None = None
     force_charge_power_kw: float | None = None
     force_discharge_power_kw: float | None = None
+    battery_charge_today_kwh: float | None = None
 
     @property
     def has_battery_data(self) -> bool:

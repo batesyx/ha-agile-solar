@@ -39,6 +39,7 @@ SOLAR_CHARGE_PER_SLOT=$(jq -r '.solar_charge_kwh_per_slot // 0.75' "$CONFIG_PATH
 SOLAR_FORECAST_TODAY=$(jq -r '.solar_forecast_today_entity // ""' "$CONFIG_PATH")
 SOLAR_FORECAST_TOMORROW=$(jq -r '.solar_forecast_tomorrow_entity // ""' "$CONFIG_PATH")
 FORECAST_MIN_KWH=$(jq -r '.solar_forecast_minimum_kwh // 10.0' "$CONFIG_PATH")
+BATTERY_CHARGE_TODAY_ENTITY=$(jq -r '.battery_charge_today_entity // "sensor.battery_charge_today"' "$CONFIG_PATH")
 
 
 # HA Supervisor provides the token and URL automatically
@@ -117,6 +118,7 @@ home_assistant:
     force_discharge_power: "number.force_discharge_power"
     solar_forecast_today: "${SOLAR_FORECAST_TODAY}"
     solar_forecast_tomorrow: "${SOLAR_FORECAST_TOMORROW}"
+    battery_charge_today: "${BATTERY_CHARGE_TODAY_ENTITY}"
 
 mqtt:
   broker: "${MQTT_HOST}"
