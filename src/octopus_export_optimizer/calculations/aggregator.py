@@ -25,6 +25,8 @@ class Aggregator:
         period_key: str,
         import_cost_intervals: list[ImportCostInterval] | None = None,
         battery_charge_kwh: float = 0.0,
+        agile_estimate_pence: float = 0.0,
+        agile_estimate_slots: int = 0,
     ) -> RevenueSummary:
         """Aggregate a list of revenue intervals into a summary.
 
@@ -62,6 +64,8 @@ class Aggregator:
                 total_charge_kwh=round(battery_charge_kwh, 4),
                 charge_cost_pence=round(charge_cost, 4),
                 arbitrage_profit_pence=round(-charge_cost, 4),
+                agile_estimate_pence=round(agile_estimate_pence, 4),
+                agile_estimate_slots=agile_estimate_slots,
             )
 
         total_kwh = sum(i.export_kwh for i in intervals)
@@ -114,6 +118,8 @@ class Aggregator:
             total_charge_kwh=round(battery_charge_kwh, 4),
             charge_cost_pence=round(charge_cost, 4),
             arbitrage_profit_pence=round(arbitrage_profit, 4),
+            agile_estimate_pence=round(agile_estimate_pence, 4),
+            agile_estimate_slots=agile_estimate_slots,
         )
 
     @staticmethod

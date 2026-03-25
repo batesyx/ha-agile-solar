@@ -541,10 +541,38 @@ class Application:
             )
             # Only pass battery charge for today (cumulative resets daily)
             charge_kwh = battery_charge_today if target_date == today else 0.0
+            # Run counterfactual Agile planner on stored rates
+            agile_est = 0.0
+            agile_slots = 0
+            total_export = sum(i.export_kwh for i in day_intervals)
+            if total_export > 0:
+                day_rates = self.tariff_repo.get_export_rates(day_start, day_end)
+                if day_rates:
+                    eff = self.settings.battery.round_trip_efficiency
+                    exportable = total_export / (eff ** 0.5)
+                    agile_plan = build_export_plan(
+                        now=day_start,
+                        upcoming_slots=day_rates,
+                        exportable_kwh=exportable,
+                        export_threshold_pence=self.settings.thresholds.export_now_threshold_pence,
+                        max_discharge_kw=self.settings.inverter_control.max_discharge_kw,
+                        battery_capacity_kwh=self.settings.battery.capacity_kwh,
+                        round_trip_efficiency=eff,
+                        max_export_slots=self.settings.inverter_control.max_export_slots,
+                    )
+                    if agile_plan:
+                        agile_est = sum(
+                            s.expected_kwh * s.rate_pence
+                            for s in agile_plan.planned_slots
+                        )
+                        agile_slots = len(agile_plan.planned_slots)
+
             day_summary = self.aggregator.aggregate(
                 day_intervals, "day", target_date.isoformat(),
                 import_cost_intervals=day_import,
                 battery_charge_kwh=charge_kwh,
+                agile_estimate_pence=agile_est,
+                agile_estimate_slots=agile_slots,
             )
             if day_summary.total_intervals > 0 or target_date == today:
                 self.revenue_repo.upsert_summary(day_summary)

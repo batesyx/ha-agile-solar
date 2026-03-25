@@ -76,6 +76,7 @@ class PayloadBuilder:
                 "battery_charge_kwh": "0.00",
                 "charge_cost_pence": "0.0",
                 "arbitrage_profit_pence": "0.0",
+                "agile_estimate_pence": "0.0",
             }
         flat_kwh = summary.flat_export_kwh
         return {
@@ -93,6 +94,7 @@ class PayloadBuilder:
             "battery_charge_kwh": f"{summary.total_charge_kwh:.2f}",
             "charge_cost_pence": f"{summary.charge_cost_pence:.1f}",
             "arbitrage_profit_pence": f"{summary.arbitrage_profit_pence:.1f}",
+            "agile_estimate_pence": f"{summary.agile_estimate_pence:.1f}",
         }
 
     @staticmethod

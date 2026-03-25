@@ -76,6 +76,10 @@ class RevenueSummary(BaseModel):
     charge_cost_pence: float = 0.0
     arbitrage_profit_pence: float = 0.0
 
+    # Counterfactual Agile estimate
+    agile_estimate_pence: float = 0.0
+    agile_estimate_slots: int = 0
+
     @property
     def agile_revenue_gbp(self) -> float:
         return self.agile_revenue_pence / 100.0

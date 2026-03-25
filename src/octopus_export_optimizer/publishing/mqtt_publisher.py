@@ -656,6 +656,8 @@ class MqttPublisher:
             ("month_battery_charge_kwh", "revenue/month/battery_charge_kwh", "Month Battery Charge", "kWh", "mdi:battery-charging"),
             ("month_charge_cost", "revenue/month/charge_cost_pence", "Month Charge Cost", "p", "mdi:cash-remove"),
             ("month_arbitrage_profit", "revenue/month/arbitrage_profit_pence", "Month Arbitrage Profit", "p", "mdi:cash-check"),
+            ("today_agile_estimate", "revenue/today/agile_estimate_pence", "Today Agile Estimate", "p", "mdi:chart-line-variant"),
+            ("month_agile_estimate", "revenue/month/agile_estimate_pence", "Month Agile Estimate", "p", "mdi:chart-line-variant"),
             ("7d_actual_revenue", "revenue/7d/actual_pence", "7-Day Export Revenue", "p", "mdi:cash"),
             ("7d_uplift", "revenue/7d/uplift_pence", "7-Day Uplift vs Flat", "p", "mdi:cash-plus"),
             ("7d_export_kwh", "revenue/7d/export_kwh", "7-Day Exported", "kWh", "mdi:lightning-bolt"),

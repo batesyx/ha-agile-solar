@@ -16,6 +16,7 @@ from octopus_export_optimizer.storage.migrations import (
     v006_flat_baseline_summaries,
     v007_purge_pre_agile_data,
     v008_battery_charge,
+    v009_agile_estimate,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ MIGRATIONS = [
     (6, v006_flat_baseline_summaries),
     (7, v007_purge_pre_agile_data),
     (8, v008_battery_charge),
+    (9, v009_agile_estimate),
 ]
 
 

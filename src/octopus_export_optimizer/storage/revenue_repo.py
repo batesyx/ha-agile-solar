@@ -118,8 +118,9 @@ class RevenueRepo:
                     import_cost_pence, total_import_kwh, net_revenue_pence,
                     charging_opportunity_cost_pence, true_profit_pence,
                     flat_export_kwh, avg_flat_rate_pence,
-                    total_charge_kwh, charge_cost_pence, arbitrage_profit_pence)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    total_charge_kwh, charge_cost_pence, arbitrage_profit_pence,
+                    agile_estimate_pence, agile_estimate_slots)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     summary.period_type,
                     summary.period_key,
@@ -141,6 +142,8 @@ class RevenueRepo:
                     summary.total_charge_kwh,
                     summary.charge_cost_pence,
                     summary.arbitrage_profit_pence,
+                    summary.agile_estimate_pence,
+                    summary.agile_estimate_slots,
                 ),
             )
             self.db.conn.commit()
@@ -166,7 +169,8 @@ class RevenueRepo:
                           uplift_pence, avg_realised_rate_pence,
                           net_revenue_pence,
                           total_charge_kwh, charge_cost_pence,
-                          arbitrage_profit_pence
+                          arbitrage_profit_pence,
+                          agile_estimate_pence, agile_estimate_slots
                    FROM revenue_summaries
                    WHERE period_type = 'day'
                    ORDER BY period_key DESC
@@ -185,6 +189,8 @@ class RevenueRepo:
                 "battery_charge_kwh": r[7] or 0.0,
                 "charge_cost_pence": r[8] or 0.0,
                 "arbitrage_profit_pence": r[9] or 0.0,
+                "agile_estimate_pence": r[10] or 0.0,
+                "agile_estimate_slots": r[11] or 0,
             }
             for r in reversed(rows)
         ]
@@ -283,4 +289,6 @@ class RevenueRepo:
             total_charge_kwh=_safe_col(row, "total_charge_kwh", 0.0),
             charge_cost_pence=_safe_col(row, "charge_cost_pence", 0.0),
             arbitrage_profit_pence=_safe_col(row, "arbitrage_profit_pence", 0.0),
+            agile_estimate_pence=_safe_col(row, "agile_estimate_pence", 0.0),
+            agile_estimate_slots=int(_safe_col(row, "agile_estimate_slots", 0)),
         )
