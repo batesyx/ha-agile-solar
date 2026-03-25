@@ -23,6 +23,12 @@ INVERTER_CONTROL=$(jq -r '.inverter_control_enabled // false' "$CONFIG_PATH")
 CHEAP_RATE_START=$(jq -r '.cheap_rate_start_hour // 23.5' "$CONFIG_PATH")
 CHEAP_RATE_END=$(jq -r '.cheap_rate_end_hour // 5.5' "$CONFIG_PATH")
 EXPORT_PLANNER=$(jq -r '.export_planner_enabled // false' "$CONFIG_PATH")
+EXPORT_TARIFF_MODE=$(jq -r '.export_tariff_mode // "agile"' "$CONFIG_PATH")
+FLAT_MORNING_START=$(jq -r '.flat_morning_start_hour // 5.5' "$CONFIG_PATH")
+FLAT_MORNING_END=$(jq -r '.flat_morning_end_hour // 9.0' "$CONFIG_PATH")
+FLAT_MORNING_TARGET=$(jq -r '.flat_morning_target_soc // 0.80' "$CONFIG_PATH")
+FLAT_EVENING_START=$(jq -r '.flat_evening_start_hour // 21.0' "$CONFIG_PATH")
+FLAT_EVENING_END=$(jq -r '.flat_evening_end_hour // 23.5' "$CONFIG_PATH")
 MAX_DISCHARGE_KW=$(jq -r '.max_discharge_kw // 5.0' "$CONFIG_PATH")
 MAX_EXPORT_SLOTS=$(jq -r '.max_export_slots // 4' "$CONFIG_PATH")
 SOLAR_OVERNIGHT=$(jq -r '.solar_overnight_enabled // false' "$CONFIG_PATH")
@@ -125,6 +131,12 @@ inverter_control:
   cheap_rate_start_hour: ${CHEAP_RATE_START}
   cheap_rate_end_hour: ${CHEAP_RATE_END}
   export_planner_enabled: ${EXPORT_PLANNER}
+  export_tariff_mode: "${EXPORT_TARIFF_MODE}"
+  flat_morning_start_hour: ${FLAT_MORNING_START}
+  flat_morning_end_hour: ${FLAT_MORNING_END}
+  flat_morning_target_soc: ${FLAT_MORNING_TARGET}
+  flat_evening_start_hour: ${FLAT_EVENING_START}
+  flat_evening_end_hour: ${FLAT_EVENING_END}
   max_discharge_kw: ${MAX_DISCHARGE_KW}
   max_export_slots: ${MAX_EXPORT_SLOTS}
   solar_overnight_enabled: ${SOLAR_OVERNIGHT}

@@ -14,6 +14,10 @@ from octopus_export_optimizer.calculations.aggregator import Aggregator
 from octopus_export_optimizer.calculations.revenue_calculator import RevenueCalculator
 from octopus_export_optimizer.calculations.charge_planner import build_charge_plan
 from octopus_export_optimizer.calculations.export_planner import build_export_plan
+from octopus_export_optimizer.calculations.flat_rate_planner import (
+    DischargeWindow,
+    build_flat_rate_plan,
+)
 from octopus_export_optimizer.models.export_plan import ExportPlan
 from octopus_export_optimizer.calculations.revenue_estimator import estimate_revenue
 from octopus_export_optimizer.calculations.solar_profile import SolarProfile
@@ -426,21 +430,26 @@ class Application:
         )
         if not in_slot:
             export_plan = None
-            if (
-                self.settings.inverter_control.export_planner_enabled
-                and snapshot.exportable_battery_kwh
-                and snapshot.exportable_battery_kwh > 0
-            ):
-                export_plan = build_export_plan(
-                    now=now,
-                    upcoming_slots=upcoming_12h,
-                    exportable_kwh=snapshot.exportable_battery_kwh,
-                    export_threshold_pence=self.settings.thresholds.export_now_threshold_pence,
-                    max_discharge_kw=self.settings.inverter_control.max_discharge_kw,
-                    battery_capacity_kwh=self.settings.battery.capacity_kwh,
-                    round_trip_efficiency=self.settings.battery.round_trip_efficiency,
-                    max_export_slots=self.settings.inverter_control.max_export_slots,
-                )
+            ic = self.settings.inverter_control
+            if ic.export_planner_enabled:
+                if ic.export_tariff_mode == "flat":
+                    export_plan = self._build_flat_plan(
+                        now, upcoming_12h, snapshot,
+                    )
+                elif (
+                    snapshot.exportable_battery_kwh
+                    and snapshot.exportable_battery_kwh > 0
+                ):
+                    export_plan = build_export_plan(
+                        now=now,
+                        upcoming_slots=upcoming_12h,
+                        exportable_kwh=snapshot.exportable_battery_kwh,
+                        export_threshold_pence=self.settings.thresholds.export_now_threshold_pence,
+                        max_discharge_kw=ic.max_discharge_kw,
+                        battery_capacity_kwh=self.settings.battery.capacity_kwh,
+                        round_trip_efficiency=self.settings.battery.round_trip_efficiency,
+                        max_export_slots=ic.max_export_slots,
+                    )
 
         self._current_export_plan = export_plan
         if export_plan:
@@ -552,6 +561,54 @@ class Application:
                 import_cost_intervals=r_import,
             )
             self.revenue_repo.upsert_summary(r_summary)
+
+    def _build_flat_plan(
+        self,
+        now: datetime,
+        upcoming_slots: list,
+        snapshot,
+    ):
+        """Build a flat-rate discharge plan with morning + evening windows."""
+        ic = self.settings.inverter_control
+        cap = self.settings.battery.capacity_kwh
+        soc_frac = (
+            snapshot.battery_soc_pct / 100.0
+            if snapshot.battery_soc_pct is not None
+            else None
+        )
+        windows = []
+
+        # Morning window: discharge from current SoC down to target (e.g. 80%)
+        if soc_frac is not None and soc_frac > ic.flat_morning_target_soc:
+            morning_kwh = (soc_frac - ic.flat_morning_target_soc) * cap
+            windows.append(DischargeWindow(
+                start_hour=ic.flat_morning_start_hour,
+                end_hour=ic.flat_morning_end_hour,
+                exportable_kwh=morning_kwh,
+            ))
+
+        # Evening window: discharge remaining exportable energy (above reserve)
+        if (
+            snapshot.exportable_battery_kwh
+            and snapshot.exportable_battery_kwh > 0
+        ):
+            windows.append(DischargeWindow(
+                start_hour=ic.flat_evening_start_hour,
+                end_hour=ic.flat_evening_end_hour,
+                exportable_kwh=snapshot.exportable_battery_kwh,
+            ))
+
+        if not windows:
+            return None
+
+        return build_flat_rate_plan(
+            now=now,
+            upcoming_slots=upcoming_slots,
+            max_discharge_kw=ic.max_discharge_kw,
+            battery_capacity_kwh=cap,
+            round_trip_efficiency=self.settings.battery.round_trip_efficiency,
+            windows=windows,
+        )
 
     def job_publish_to_ha(self) -> None:
         """Publish all current state to Home Assistant via MQTT."""

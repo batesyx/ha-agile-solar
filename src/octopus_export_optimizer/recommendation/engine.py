@@ -138,12 +138,14 @@ class RecommendationEngine:
             result.state == RecommendationState.CHARGE_FOR_LATER_EXPORT
             and result.reason_code == ReasonCode.OVERNIGHT_CHARGE_STRATEGY
         ):
-            # Use dynamic target if available, otherwise static 95%
-            effective_target = (
-                snapshot.overnight_charge_target_pct
-                if snapshot.overnight_charge_target_pct is not None
-                else 0.95
-            )
+            # Flat-rate mode: always charge to 100% overnight
+            # (morning bleed-down will bring SoC back to healthy level)
+            if self.inverter_control.export_tariff_mode == "flat":
+                effective_target = 1.0
+            elif snapshot.overnight_charge_target_pct is not None:
+                effective_target = snapshot.overnight_charge_target_pct
+            else:
+                effective_target = 0.95
             target_pct = int(effective_target * 100)
             result.target_max_soc = target_pct
 

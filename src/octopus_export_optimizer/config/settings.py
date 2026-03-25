@@ -107,6 +107,12 @@ class InverterControlSettings(BaseModel):
     fallback_on_insufficient_data: str = "feed_in_first"  # "feed_in_first" or "none"
     full_charge_lead_time_hours: float = 1.5  # hours before peak to raise max_soc to 100%
     export_planner_enabled: bool = False  # Enable multi-slot export planning
+    export_tariff_mode: Literal["agile", "flat"] = "agile"  # Planner algorithm
+    flat_morning_start_hour: float = 5.5  # Local UK — morning bleed-down start (05:30)
+    flat_morning_end_hour: float = 9.0  # Local UK — morning bleed-down end (09:00)
+    flat_morning_target_soc: float = 0.80  # Discharge to 80% in morning window
+    flat_evening_start_hour: float = 21.0  # Local UK — evening export start (21:00)
+    flat_evening_end_hour: float = 23.5  # Local UK — evening export end (23:30)
     max_discharge_kw: float = 5.0  # ~24A, under 25A continuous target
     max_export_slots: int = 4  # Number of top-paying slots to discharge across
     solar_overnight_enabled: bool = False  # Enable solar-aware overnight charging
