@@ -617,15 +617,6 @@ class Application:
         )
         windows = []
 
-        # Morning window: discharge from current SoC down to target (e.g. 80%)
-        if soc_frac is not None and soc_frac > ic.flat_morning_target_soc:
-            morning_kwh = (soc_frac - ic.flat_morning_target_soc) * cap
-            windows.append(DischargeWindow(
-                start_hour=ic.flat_morning_start_hour,
-                end_hour=ic.flat_morning_end_hour,
-                exportable_kwh=morning_kwh,
-            ))
-
         # Evening window: discharge remaining exportable energy (above reserve)
         if (
             snapshot.exportable_battery_kwh

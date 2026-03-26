@@ -62,6 +62,7 @@ class RecommendationEngine:
                 battery,
                 cheap_rate_start_hour=self.inverter_control.cheap_rate_start_hour,
                 cheap_rate_end_hour=self.inverter_control.cheap_rate_end_hour,
+                export_tariff_mode=self.inverter_control.export_tariff_mode,
             ),
             ChargeForLaterExportRule(thresholds, battery),
             ExportNowRule(thresholds, battery),
@@ -90,6 +91,13 @@ class RecommendationEngine:
         """
         # Build rules list, inserting PlannedExportRule when a plan exists
         rules = list(self.rules)
+
+        # In flat-rate mode, ExportNowRule must not fire — discharge is
+        # controlled entirely by the flat planner via PlannedExportRule.
+        is_flat = self.inverter_control.export_tariff_mode == "flat"
+        if is_flat:
+            rules = [r for r in rules if not isinstance(r, ExportNowRule)]
+
         if export_plan is not None:
             planned_rule = PlannedExportRule(
                 self.thresholds, self.battery, export_plan
@@ -298,7 +306,7 @@ class RecommendationEngine:
                 soc_fraction = battery_soc / 100.0
                 current_kwh = soc_fraction * self.battery.capacity_kwh
                 effective_floor = (
-                    max(self.thresholds.reserve_soc_floor, minimum_soc_override)
+                    minimum_soc_override
                     if minimum_soc_override is not None
                     else self.thresholds.reserve_soc_floor
                 )

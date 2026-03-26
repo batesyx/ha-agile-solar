@@ -111,11 +111,13 @@ class OvernightChargeRule(Rule):
         cheap_rate_start_hour: float = 23.5,
         cheap_rate_end_hour: float = 5.5,
         target_soc_pct: float = 0.95,
+        export_tariff_mode: str = "agile",
     ) -> None:
         super().__init__(thresholds, battery)
         self.cheap_rate_start_hour = cheap_rate_start_hour
         self.cheap_rate_end_hour = cheap_rate_end_hour
-        self.target_soc_pct = target_soc_pct
+        # Flat-rate mode: always charge to 100% overnight
+        self.target_soc_pct = 1.0 if export_tariff_mode == "flat" else target_soc_pct
 
     def _is_cheap_window(self, now: datetime) -> bool:
         """Check if current time is within cheap import hours.
