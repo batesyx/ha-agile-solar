@@ -40,7 +40,7 @@ class InverterController:
         self.command_repo = command_repo
 
         self._auto_control_enabled: bool = False
-        self._evening_reserve_pct: float = 10.0
+        self._evening_reserve_pct: float = 20.0
         self._last_commanded_mode: WorkMode | None = None
         self._last_commanded_max_soc: int | None = None
         self._last_commanded_charge_kw: float | None = None

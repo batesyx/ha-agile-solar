@@ -27,6 +27,7 @@ class DischargeWindow:
     start_hour: float  # Local UK time
     end_hour: float  # Local UK time
     exportable_kwh: float  # Energy to export in this window
+    fixed_discharge_kw: float | None = None  # If set, use this power instead of calculating
 
 
 def build_flat_rate_plan(
@@ -83,8 +84,12 @@ def build_flat_rate_plan(
         eligible.sort(key=lambda s: s.interval_start)
         slot_count = len(eligible)
 
-        even_kwh_per_slot = effective_kwh / slot_count
-        even_kw = min(max_discharge_kw, even_kwh_per_slot / 0.5)
+        if window.fixed_discharge_kw is not None:
+            even_kw = min(max_discharge_kw, window.fixed_discharge_kw)
+            even_kwh_per_slot = even_kw * 0.5
+        else:
+            even_kwh_per_slot = effective_kwh / slot_count
+            even_kw = min(max_discharge_kw, even_kwh_per_slot / 0.5)
 
         # Drop slots with < 0.1 kWh — not worth inverter switching overhead
         if even_kwh_per_slot < 0.1:
