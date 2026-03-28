@@ -102,10 +102,18 @@ class RecommendationEngine:
             planned_rule = PlannedExportRule(
                 self.thresholds, self.battery, export_plan
             )
-            # Insert before ExportNowRule (after ChargeForLaterExportRule)
+            # Insert after ChargeForLaterExportRule (before ExportNowRule or
+            # its position in the chain when ExportNowRule is filtered out)
             insert_idx = next(
-                (i for i, r in enumerate(rules) if isinstance(r, ExportNowRule)),
-                len(rules),
+                (
+                    i + 1
+                    for i, r in enumerate(rules)
+                    if isinstance(r, ChargeForLaterExportRule)
+                ),
+                next(
+                    (i for i, r in enumerate(rules) if isinstance(r, ExportNowRule)),
+                    len(rules),
+                ),
             )
             rules.insert(insert_idx, planned_rule)
 
