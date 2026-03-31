@@ -10,6 +10,7 @@ Rules are evaluated in priority order by the engine.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from octopus_export_optimizer.config.settings import BatterySettings, ThresholdSettings
 from octopus_export_optimizer.models.recommendation import (
@@ -120,7 +121,7 @@ class OvernightChargeRule(Rule):
         self.target_soc_pct = 1.0 if export_tariff_mode == "flat" else target_soc_pct
 
     def _is_cheap_window(self, now: datetime) -> bool:
-        """Check if current time is within cheap import hours.
+        """Check if current time is within cheap import hours (local UK time).
 
         Insets the window by 1 minute on each side (e.g. 23:30-05:30 becomes
         23:31-05:29) to avoid smart meter billing overlap at the boundaries.
@@ -128,7 +129,8 @@ class OvernightChargeRule(Rule):
         inset = 1.0 / 60.0  # 1 minute in decimal hours
         start = self.cheap_rate_start_hour + inset
         end = self.cheap_rate_end_hour - inset
-        hour = now.hour + now.minute / 60.0
+        local_now = now.astimezone(ZoneInfo("Europe/London"))
+        hour = local_now.hour + local_now.minute / 60.0
         if self.cheap_rate_start_hour > self.cheap_rate_end_hour:
             # Overnight window (e.g. 23:31 to 05:29)
             return hour >= start or hour < end
