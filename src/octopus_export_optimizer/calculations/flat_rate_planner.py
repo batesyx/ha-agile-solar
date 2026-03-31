@@ -28,6 +28,7 @@ class DischargeWindow:
     end_hour: float  # Local UK time
     exportable_kwh: float  # Energy to export in this window
     fixed_discharge_kw: float | None = None  # If set, use this power instead of calculating
+    min_soc_pct: float | None = None  # Stop discharging at this SoC (0.0-1.0)
 
 
 def build_flat_rate_plan(
@@ -102,6 +103,7 @@ def build_flat_rate_plan(
                 rate_pence=slot.rate_inc_vat_pence,
                 discharge_kw=round(even_kw, 3),
                 expected_kwh=round(even_kwh_per_slot, 4),
+                min_soc_pct=window.min_soc_pct,
             ))
 
         total_exportable += window.exportable_kwh

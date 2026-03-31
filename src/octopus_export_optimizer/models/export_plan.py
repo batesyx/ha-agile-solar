@@ -15,6 +15,7 @@ class PlannedSlot(BaseModel):
     rate_pence: float
     discharge_kw: float
     expected_kwh: float  # discharge_kw × 0.5 hours
+    min_soc_pct: float | None = None  # Stop discharging at this SoC (0.0-1.0)
 
 
 class ExportPlan(BaseModel):

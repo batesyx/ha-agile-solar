@@ -625,6 +625,7 @@ class Application:
                 end_hour=ic.flat_morning_end_hour,
                 exportable_kwh=morning_kwh,
                 fixed_discharge_kw=3.0,
+                min_soc_pct=ic.flat_morning_target_soc,
             ))
 
         # Evening window: discharge remaining exportable energy (above reserve)
@@ -636,6 +637,7 @@ class Application:
                 start_hour=ic.flat_evening_start_hour,
                 end_hour=ic.flat_evening_end_hour,
                 exportable_kwh=snapshot.exportable_battery_kwh,
+                min_soc_pct=snapshot.effective_reserve_soc,
             ))
 
         if not windows:

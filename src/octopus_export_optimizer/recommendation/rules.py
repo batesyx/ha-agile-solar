@@ -249,12 +249,15 @@ class PlannedExportRule(Rule):
         current_slot = self.plan.get_current_slot(snapshot.timestamp)
 
         if current_slot is not None:
-            # Check SOC is still above reserve
+            # Check SOC is still above the slot's target minimum
             if snapshot.battery_soc_pct is not None:
                 soc = self._normalize_soc(snapshot.battery_soc_pct)
-                reserve = snapshot.effective_reserve_soc or self.thresholds.reserve_soc_floor
+                if current_slot.min_soc_pct is not None:
+                    reserve = current_slot.min_soc_pct
+                else:
+                    reserve = snapshot.effective_reserve_soc or self.thresholds.reserve_soc_floor
                 if soc <= reserve:
-                    return None  # Battery at reserve, fall through
+                    return None  # Battery at target, fall through
 
             rec = self._make_recommendation(
                 snapshot,
