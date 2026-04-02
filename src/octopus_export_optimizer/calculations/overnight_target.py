@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from octopus_export_optimizer.models.tariff import TariffSlot
 
@@ -137,17 +138,19 @@ def calculate_overnight_charge_power(
     if current_soc_pct >= target_soc_pct:
         return min_power_kw
 
-    # Build the effective end datetime (cheap_rate_end minus buffer)
+    # Build the effective end datetime in local UK time, then convert to UTC
+    uk_tz = ZoneInfo("Europe/London")
+    local_now = now.astimezone(uk_tz)
     end_hour = int(cheap_rate_end_hour)
     end_minute = int((cheap_rate_end_hour % 1) * 60)
-    effective_end = now.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
+    effective_end = local_now.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
     effective_end -= timedelta(minutes=buffer_minutes)
 
     # If end time appears to be in the past, it's tomorrow
-    if effective_end <= now:
+    if effective_end <= local_now:
         effective_end += timedelta(days=1)
 
-    remaining_hours = (effective_end - now).total_seconds() / 3600.0
+    remaining_hours = (effective_end - local_now).total_seconds() / 3600.0
 
     if remaining_hours < 0.25:
         return max_power_kw
